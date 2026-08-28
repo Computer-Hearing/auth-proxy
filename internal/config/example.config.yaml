@@ -39,3 +39,11 @@ routes:
 
 blacklist:
   - "10.0.0.0/8"
+
+users:
+  - id: 1
+    login: "admin"
+    password: "adminpass"
+    email: "admin@example.com"
+    full_name: "Admin"
+    role: "superadmin"

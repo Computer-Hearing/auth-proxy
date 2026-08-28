@@ -1,6 +1,7 @@
 package config
 
 import (
+	"auth-proxy/pkg"
 	"os"
 	"path/filepath"
 	"slices"
@@ -143,5 +144,102 @@ func TestValidateRoutes_DuplicatePrefix(t *testing.T) {
 
 	if err := validateRoutes(cfg); err == nil {
 		t.Fatal("expected error for duplicate prefix, got nil")
+	}
+}
+
+func TestValidateRoutes_UserRoleNotInList(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Users: []User{
+			{ID: 1, Login: "alice", Password: "secret", Role: "ghost"},
+		},
+	}
+
+	if err := validateRoutes(cfg); err == nil {
+		t.Fatal("expected error for unknown user role, got nil")
+	}
+}
+
+func TestValidateRoutes_UserPasswordHashed(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Bcrypt: BcryptConfig{Cost: 4},
+		Users: []User{
+			{ID: 1, Login: "alice", Password: "secret", Role: "superadmin"},
+		},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Users) != 1 {
+		t.Fatalf("expected exactly 1 user, got %d", len(cfg.Users))
+	}
+	u := cfg.Users[0]
+	if u.Password == "secret" {
+		t.Error("password should be hashed")
+	}
+	if !pkg.CheckPassword("secret", u.Password) {
+		t.Error("hashed password should match original")
+	}
+}
+
+func TestValidateRoutes_AutoSuperAdmin(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Bcrypt: BcryptConfig{Cost: 4},
+		Users: []User{
+			{ID: 5, Login: "alice", Password: "secret", Role: "user"},
+		},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Users) != 2 {
+		t.Fatalf("expected 2 users (user + auto superadmin), got %d", len(cfg.Users))
+	}
+
+	sa := cfg.Users[1]
+	if sa.Login != "superadmin" {
+		t.Errorf("login: got %q, want %q", sa.Login, "superadmin")
+	}
+	if sa.Role != "superadmin" {
+		t.Errorf("role: got %q, want top role %q", sa.Role, "superadmin")
+	}
+	if sa.ID != 6 {
+		t.Errorf("id: got %d, want max+1 = 6", sa.ID)
+	}
+	if !pkg.CheckPassword("superadmin", sa.Password) {
+		t.Error("auto superadmin password should hash to 'superadmin'")
+	}
+}
+
+func TestValidateRoutes_NoUsers_AutoSuperAdmin(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Bcrypt: BcryptConfig{Cost: 4},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Users) != 1 {
+		t.Fatalf("expected auto superadmin, got %d users", len(cfg.Users))
 	}
 }

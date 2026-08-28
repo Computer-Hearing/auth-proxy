@@ -8,9 +8,9 @@ import (
 
 // HashPassword - хеширует пароль с автоматической солью
 func HashPassword(password string, cost int) (string, error) {
-	hashCost := bcrypt.DefaultCost
-	if cost < 1 {
-		hashCost = cost
+	hashCost := cost
+	if hashCost < bcrypt.MinCost || hashCost > bcrypt.MaxCost {
+		hashCost = bcrypt.DefaultCost
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), hashCost)

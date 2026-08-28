@@ -12,6 +12,7 @@ type Config struct {
 	Routes    []RouteConfig `yaml:"routes" validate:"required,min=1,dive"`
 	Roles     []string      `yaml:"roles" env:"ROLES" envDefault:"user,admin,superadmin" validate:"required,min=3,dive,required"`
 	Blacklist []string      `yaml:"blacklist"`
+	Users     []User        `yaml:"users" validate:"dive"`
 }
 
 // ServerConfig - настройки сервера
@@ -45,4 +46,13 @@ type RouteConfig struct {
 	Redirect         bool     `yaml:"redirect"`
 	StripFirstPrefix bool     `yaml:"strip_first_prefix"`
 	RequiredRoles    []string `yaml:"required_roles" validate:"dive,required"`
+}
+
+type User struct {
+	ID       int64  `yaml:"id" json:"id" validate:"required,gte=1"`
+	Login    string `yaml:"login" json:"login" validate:"required,min=4,max=128"`
+	Password string `yaml:"password" json:"-" validate:"required,min=4,max=72"`
+	Email    string `yaml:"email" json:"email" validate:"omitempty,email"`
+	FullName string `yaml:"full_name" json:"full_name"`
+	Role     string `yaml:"role" json:"role" validate:"required"`
 }

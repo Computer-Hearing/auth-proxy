@@ -7,7 +7,7 @@ const (
 
 	MinUsernameLen       = 4
 	MaxUsernameLen       = 128
-	MinHashedPasswordLen = 64
+	MinHashedPasswordLen = 60
 	MinFirstNameLen      = 1
 	MaxFirstNameLen      = 128
 

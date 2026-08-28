@@ -1,6 +1,8 @@
 package config
 
 import (
+	"auth-proxy/pkg"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -11,6 +13,10 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
+)
+
+var (
+	ErrConfigIsNil = errors.New("config file is nil")
 )
 
 // Load загружает конфиг из ENV + YAML + дефолтов
@@ -115,6 +121,36 @@ func validateRoutes(cfg *Config) error {
 		seen[route.Prefix] = true
 	}
 
+	// Валидация пользователей, за одно проверяем есть ли хотя бы один суперадмин
+	hasSuperAdmin := false
+	for i, user := range cfg.Users {
+		// есть ли роль в списке ролей
+		if !slices.Contains(cfg.Roles, user.Role) {
+			return fmt.Errorf("user[%d]: role '%s' is not in Roles list", user.ID, user.Role)
+		}
+
+		// хешируем пароль
+		hashPass, err := pkg.HashPassword(user.Password, cfg.Bcrypt.Cost)
+		if err != nil {
+			return fmt.Errorf("hash password: %w", err)
+		}
+		cfg.Users[i].Password = hashPass
+
+		// проверяем самая главная роль ли это
+		if user.Role == cfg.Roles[len(cfg.Roles)-1] {
+			hasSuperAdmin = true
+		}
+	}
+
+	// Если не нашли ни одного супер админа (пользователя с самой главной ролью), то создаем
+	if !hasSuperAdmin {
+		usr, err := createDefaultSuperAdmin(cfg)
+		if err != nil {
+			return err
+		}
+		cfg.Users = append(cfg.Users, usr)
+	}
+
 	return nil
 }
 
@@ -177,4 +213,31 @@ func (c *Config) GetRouteByPrefix(path string) *RouteConfig {
 	}
 
 	return best
+}
+
+func createDefaultSuperAdmin(cfg *Config) (User, error) {
+	if cfg == nil {
+		return User{}, ErrConfigIsNil
+	}
+
+	superadminPass, err := pkg.HashPassword("superadmin", cfg.Bcrypt.Cost)
+	if err != nil {
+		return User{}, fmt.Errorf("hash password: %w", err)
+	}
+
+	maxID := int64(0)
+	for _, u := range cfg.Users {
+		if u.ID > maxID {
+			maxID = u.ID
+		}
+	}
+
+	superAdmin := User{
+		ID:       maxID + 1,
+		Login:    "superadmin",
+		Password: superadminPass,
+		FullName: "superadmin",
+		Role:     cfg.Roles[len(cfg.Roles)-1],
+	}
+	return superAdmin, nil
 }
