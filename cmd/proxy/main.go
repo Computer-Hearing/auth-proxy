@@ -16,10 +16,13 @@ func main() {
 	}
 	fmt.Println(cfg)
 
-	routes := handlers.NewHandlers(cfg, slog.Default())
+	handler, err := handlers.NewHandlers(&handlers.Options{Logger: slog.Default(), Config: cfg})
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", routes.ServeHTTP)
+	mux.HandleFunc("/", handler.ServeHTTP)
 
 	server := http.Server{
 		Addr:    ":8080",

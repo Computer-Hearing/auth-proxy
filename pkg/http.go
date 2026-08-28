@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 )
 
 func SendJSON(logger *slog.Logger, w http.ResponseWriter, data interface{}, statusCode int) {
@@ -24,13 +25,34 @@ type jsonError struct {
 	Error string `json:"error"`
 }
 
-// NewReverseProxy создает реверс-прокси к целевому сервису
-func NewReverseProxy(targetURL string) (*httputil.ReverseProxy, error) {
+// NewReverseProxy создает реверс-прокси к целевому сервису.
+// stripFirstPrefix - если true, из пути запроса убирается первый сегмент
+// (например, /inference/api/v1 -> /api/v1).
+func NewReverseProxy(targetURL string, stripFirstPrefix bool) (*httputil.ReverseProxy, error) {
 	target, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, err
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+
+			if stripFirstPrefix {
+				pr.Out.URL.Path = StripFirstPath(pr.In.URL.Path)
+				pr.Out.URL.RawPath = ""
+			}
+		},
+	}
 	return proxy, nil
+}
+
+// StripFirstPath убирает первый сегмент пути: /inference/api/v1 -> /api/v1, /inference -> /
+func StripFirstPath(path string) string {
+	p := strings.TrimPrefix(path, "/")
+	idx := strings.IndexByte(p, '/')
+	if idx == -1 {
+		return "/"
+	}
+	return "/" + p[idx+1:]
 }

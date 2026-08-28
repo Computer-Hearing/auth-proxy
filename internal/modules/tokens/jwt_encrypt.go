@@ -1,7 +1,7 @@
 package tokens
 
 import (
-	"auth-proxy/internal/modules/pkg/users"
+	"auth-proxy/internal/modules/users"
 	"auth-proxy/pkg"
 	"context"
 	"crypto/rand"

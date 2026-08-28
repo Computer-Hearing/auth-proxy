@@ -25,7 +25,7 @@ type ServerConfig struct {
 // JWTConfig - настройки JWT (обязательные секреты из ENV)
 type JWTConfig struct {
 	AccessCookieKey  string        `yaml:"access_cookie_key" env:"JWT_ACCESS_COOKIE_KEY" envDefault:"access_token"`
-	RefreshCookieKey string        `yaml:"refresh_cookie_key" env:"JWT_REFRESH_COOKE_KEY" envDefault:"refresh_token"`
+	RefreshCookieKey string        `yaml:"refresh_cookie_key" env:"JWT_REFRESH_COOKIE_KEY" envDefault:"refresh_token"`
 	AccessSecret     string        `yaml:"access_secret" env:"JWT_ACCESS_SECRET" validate:"required,min=32"`
 	RefreshSecret    string        `yaml:"refresh_secret" env:"JWT_REFRESH_SECRET" validate:"required,min=32"`
 	AccessTTL        time.Duration `yaml:"access_ttl" env:"JWT_ACCESS_TTL" envDefault:"15m" validate:"gte=1m"`
@@ -39,8 +39,10 @@ type BcryptConfig struct {
 
 // RouteConfig - маршрут для Gateway
 type RouteConfig struct {
-	Prefix        string   `yaml:"prefix" validate:"required"`
-	Target        string   `yaml:"target" validate:"required,url"`
-	SkipAuth      bool     `yaml:"skip_auth"`
-	RequiredRoles []string `yaml:"required_roles" validate:"dive,required"`
+	Prefix           string   `yaml:"prefix" validate:"required"`
+	Target           string   `yaml:"target" validate:"required,url"`
+	SkipAuth         bool     `yaml:"skip_auth"`
+	Redirect         bool     `yaml:"redirect"`
+	StripFirstPrefix bool     `yaml:"strip_first_prefix"`
+	RequiredRoles    []string `yaml:"required_roles" validate:"dive,required"`
 }

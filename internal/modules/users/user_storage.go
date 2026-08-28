@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/patrickmn/go-cache"
 )
@@ -17,7 +16,6 @@ type UserStorageConfig struct {
 
 type UserStorage struct {
 	cache  *cache.Cache
-	mu     sync.RWMutex
 	logger *slog.Logger
 }
 
@@ -32,15 +30,11 @@ func NewUsersCache(cfg *UserStorageConfig) *UserStorage {
 	return &UserStorage{
 		cache:  cache.New(cache.NoExpiration, cache.NoExpiration),
 		logger: cfg.Logger,
-		mu:     sync.RWMutex{},
 	}
 }
 
 // LoadUsers загружает пользователей в кеш
 func (uc *UserStorage) LoadUsers(_ context.Context, users []domain.User) {
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
-
 	// Очищаем старый кеш
 	uc.cache.Flush()
 
@@ -110,9 +104,6 @@ func (uc *UserStorage) Authenticate(ctx context.Context, username, password stri
 
 // AddOrUpdate добавляет или обновляет пользователя
 func (uc *UserStorage) AddOrUpdate(_ context.Context, user domain.User) {
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
-
 	// Обновляем все ключи
 	uc.cache.Set(fmt.Sprintf("user:id:%d", user.ID), user, cache.NoExpiration)
 	uc.cache.Set(fmt.Sprintf("user:username:%s", user.Username), user, cache.NoExpiration)
@@ -121,9 +112,6 @@ func (uc *UserStorage) AddOrUpdate(_ context.Context, user domain.User) {
 
 // Delete удаляет пользователя
 func (uc *UserStorage) Delete(ctx context.Context, id int64) {
-	uc.mu.Lock()
-	defer uc.mu.Unlock()
-
 	user, found := uc.GetByID(ctx, id)
 	if !found {
 		return
@@ -136,9 +124,6 @@ func (uc *UserStorage) Delete(ctx context.Context, id int64) {
 
 // GetAll возвращает всех пользователей
 func (uc *UserStorage) GetAll(_ context.Context) []domain.User {
-	uc.mu.RLock()
-	defer uc.mu.RUnlock()
-
 	var users []domain.User
 	items := uc.cache.Items()
 
