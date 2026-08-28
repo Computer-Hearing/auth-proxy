@@ -1,0 +1,47 @@
+roles:
+  - "user"
+  - "admin"
+  - "superadmin"
+
+routes:
+  - prefix: "/api/users"
+    target: "http://users_service:8081"
+    skip_auth: false
+
+  - prefix: "/api/users/delete"
+    target: "http://users_service:8081"
+    skip_auth: false
+    required_roles:
+      - "superadmin"
+      - "admin"
+
+  - prefix: "/api/reports"
+    target: "http://reports_service:8082"
+    skip_auth: false
+    required_roles:
+        - "superadmin"
+        - "admin"
+        - "user"
+
+  - prefix: "/api/admin"
+    target: "http://admin_service:8083"
+    skip_auth: false
+    required_roles:
+      - "superadmin"
+
+blacklist:
+  - "10.0.0.0/8"
+
+# Как работает проверка запроса:
+# Пользователь делает запрос, например, на /api/admin (пример выше из routes взят)
+# Запрос перехватывается auth сервисом
+# Запрос проходит стадии проверок
+# 1) Собираются отпечатки устройства (ip, user-agent т.д.)
+# 2) Проверка токена (jwt из куки):
+#     если флажок skip_auth = false то проверяем токен: если нет - страница login \
+#        если невалиден токен - refresh, если все норм пропускаем на следующий этап проверки (мб кеширование токенов бахнуть)
+#     если флажок skip_auth = true то пропускаем проверку токена.
+#     (при skip_auth = false) Проверяем имеет ли роль пользователя доступ к этой ручке. Роль берется из jwt токена распаршенного на предыдущем этапе.
+#     если есть доступ - переходим к следующему этапу проверки,
+#     если не доступа - выдаем 403 ошибку
+# 4) Проверяем есть ли пользователь в блэклисте, если есть 403, если нет дальше идем по проверкам
