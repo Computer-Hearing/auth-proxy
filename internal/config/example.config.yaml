@@ -1,0 +1,38 @@
+# внешний адрес гейта - на него auth-сервис возвращает пользователя после логина/выхода
+gateway:
+  base_url: "http://localhost:5000"
+
+# auth-сервис: порт слушателя и внешний адрес (для редиректов гейта на /login, /refresh)
+auth:
+  port: 8081
+  base_url: "http://localhost:8081"
+
+roles:
+  - "user"
+  - "admin"
+  - "superadmin"
+
+routes:
+  - prefix: "/**/*.js"
+    target: "http://static_service:8084"
+    skip_auth: true
+    strip_first_prefix: true
+
+  # редирект-маршрут: вместо проксирования отвечаем 302 на target + путь запроса
+  # с strip_first_prefix: true первый сегмент пути вырезается: /inference/api/v1 -> login_service/login/api/v1
+  - prefix: "/inference"
+    target: "http://login_service:8084/login"
+    skip_auth: true
+    redirect: true
+    strip_first_prefix: true
+
+blacklist:
+  - "10.0.0.0/8"
+
+users:
+  - id: 1
+    login: "superadmin"
+    password: "superadmin"
+    email: "superadmin@example.com"
+    full_name: "Superadmin"
+    role: "superadmin"

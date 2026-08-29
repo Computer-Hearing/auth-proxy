@@ -1,0 +1,403 @@
+package config
+
+import (
+	"auth-proxy/pkg"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+)
+
+func TestValidateRoutes_RoleLadder(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", RequiredRoles: []string{"admin"}},
+			{Prefix: "/b", Target: "http://x", RequiredRoles: []string{"superadmin"}},
+			{Prefix: "/c", Target: "http://x"},
+			{Prefix: "/d", Target: "http://x", SkipAuth: true},
+			{Prefix: "/e", Target: "http://x", SkipAuth: true, RequiredRoles: []string{"admin"}},
+		},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cases := []struct {
+		prefix string
+		want   []string
+	}{
+		{"/a", []string{"admin", "superadmin"}},
+		{"/b", []string{"superadmin"}},
+		{"/c", []string{"user", "admin", "superadmin"}},
+		{"/d", nil},
+		{"/e", []string{"admin"}},
+	}
+
+	for _, tc := range cases {
+		route := cfg.GetRouteByPrefix(tc.prefix)
+		if route == nil {
+			t.Fatalf("route %s not found", tc.prefix)
+		}
+		if !slices.Equal(route.RequiredRoles, tc.want) {
+			t.Errorf("route %s: got %v, want %v", tc.prefix, route.RequiredRoles, tc.want)
+		}
+	}
+}
+
+func TestValidateRoutes_UnknownRole(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", RequiredRoles: []string{"ghost"}},
+		},
+	}
+
+	if err := validateRoutes(cfg); err == nil {
+		t.Fatal("expected error for unknown role, got nil")
+	}
+}
+
+func TestLoad_YAMLPopulatesRolesAndBlacklist(t *testing.T) {
+	yamlContent := `
+auth:
+  port: 8081
+  base_url: "http://localhost:8081"
+
+roles:
+  - "guest"
+  - "member"
+  - "owner"
+  - "root"
+
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+
+blacklist:
+  - "10.0.0.0/8"
+  - "192.168.1.1"
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantRoles := []string{"guest", "member", "owner", "root"}
+	if !slices.Equal(cfg.Roles, wantRoles) {
+		t.Errorf("roles: got %v, want %v (YAML should override ENV defaults)", cfg.Roles, wantRoles)
+	}
+
+	wantBlacklist := []string{"10.0.0.0/8", "192.168.1.1"}
+	if !slices.Equal(cfg.Blacklist, wantBlacklist) {
+		t.Errorf("blacklist: got %v, want %v (should be populated from YAML)", cfg.Blacklist, wantBlacklist)
+	}
+}
+
+func TestLoad_RolesEnvDefaultWhenNotInYAML(t *testing.T) {
+	if prev, ok := os.LookupEnv("ROLES"); ok {
+		os.Unsetenv("ROLES")
+		t.Cleanup(func() { os.Setenv("ROLES", prev) })
+	}
+
+	yamlContent := `
+auth:
+  port: 8081
+  base_url: "http://localhost:8081"
+
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantRoles := []string{"user", "admin", "superadmin"}
+	if !slices.Equal(cfg.Roles, wantRoles) {
+		t.Errorf("roles: got %v, want default %v", cfg.Roles, wantRoles)
+	}
+}
+
+func TestLoad_MissingAuthBaseURL(t *testing.T) {
+	// добиваемся, чтобы AUTH_BASE_URL пришёл пустым из окружения
+	if prev, ok := os.LookupEnv("AUTH_BASE_URL"); ok {
+		os.Unsetenv("AUTH_BASE_URL")
+		t.Cleanup(func() { os.Setenv("AUTH_BASE_URL", prev) })
+	}
+
+	yamlContent := `
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when Auth.BaseURL is missing, got nil")
+	}
+}
+
+func TestLoad_DefaultAuthPort(t *testing.T) {
+	// добиваемся, чтобы AUTH_PORT не был задан (проверяем envDefault)
+	if prev, ok := os.LookupEnv("AUTH_PORT"); ok {
+		os.Unsetenv("AUTH_PORT")
+		t.Cleanup(func() { os.Setenv("AUTH_PORT", prev) })
+	}
+
+	yamlContent := `
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+	t.Setenv("AUTH_BASE_URL", "http://localhost:8081")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Auth.Port != 8081 {
+		t.Errorf("Auth.Port: got %d, want default 8081", cfg.Auth.Port)
+	}
+	if cfg.Auth.BaseURL != "http://localhost:8081" {
+		t.Errorf("Auth.BaseURL: got %q", cfg.Auth.BaseURL)
+	}
+}
+
+func TestLoad_DefaultGatewayBaseURL(t *testing.T) {
+	// добиваемся, чтобы GATEWAY_BASE_URL не был задан (проверяем envDefault)
+	if prev, ok := os.LookupEnv("GATEWAY_BASE_URL"); ok {
+		os.Unsetenv("GATEWAY_BASE_URL")
+		t.Cleanup(func() { os.Setenv("GATEWAY_BASE_URL", prev) })
+	}
+
+	yamlContent := `
+auth:
+  base_url: "http://localhost:8081"
+
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Gateway.BaseURL != "http://localhost:5000" {
+		t.Errorf("Gateway.BaseURL: got %q, want default http://localhost:5000", cfg.Gateway.BaseURL)
+	}
+}
+
+func TestValidateRoutes_DuplicatePrefix(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", RequiredRoles: []string{"admin"}},
+			{Prefix: "/a", Target: "http://y", RequiredRoles: []string{"admin"}},
+		},
+	}
+
+	if err := validateRoutes(cfg); err == nil {
+		t.Fatal("expected error for duplicate prefix, got nil")
+	}
+}
+
+func TestValidateRoutes_UserRoleNotInList(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Users: []User{
+			{ID: 1, Login: "alice", Password: "secret", Role: "ghost"},
+		},
+	}
+
+	if err := validateRoutes(cfg); err == nil {
+		t.Fatal("expected error for unknown user role, got nil")
+	}
+}
+
+func TestValidateRoutes_UserPasswordHashed(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Bcrypt: BcryptConfig{Cost: 4},
+		Users: []User{
+			{ID: 1, Login: "alice", Password: "secret", Role: "superadmin"},
+		},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Users) != 1 {
+		t.Fatalf("expected exactly 1 user, got %d", len(cfg.Users))
+	}
+	u := cfg.Users[0]
+	if u.Password == "secret" {
+		t.Error("password should be hashed")
+	}
+	if !pkg.CheckPassword("secret", u.Password) {
+		t.Error("hashed password should match original")
+	}
+}
+
+func TestValidateRoutes_AutoSuperAdmin(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Bcrypt: BcryptConfig{Cost: 4},
+		Users: []User{
+			{ID: 5, Login: "alice", Password: "secret", Role: "user"},
+		},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Users) != 2 {
+		t.Fatalf("expected 2 users (user + auto superadmin), got %d", len(cfg.Users))
+	}
+
+	sa := cfg.Users[1]
+	if sa.Login != "superadmin" {
+		t.Errorf("login: got %q, want %q", sa.Login, "superadmin")
+	}
+	if sa.Role != "superadmin" {
+		t.Errorf("role: got %q, want top role %q", sa.Role, "superadmin")
+	}
+	if sa.ID != 6 {
+		t.Errorf("id: got %d, want max+1 = 6", sa.ID)
+	}
+	if !pkg.CheckPassword("superadmin", sa.Password) {
+		t.Error("auto superadmin password should hash to 'superadmin'")
+	}
+}
+
+func TestValidateRoutes_NoUsers_AutoSuperAdmin(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+		},
+		Bcrypt: BcryptConfig{Cost: 4},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Users) != 1 {
+		t.Fatalf("expected auto superadmin, got %d users", len(cfg.Users))
+	}
+}
+
+func TestGetRouteByPrefix_Wildcard(t *testing.T) {
+	cfg := &Config{
+		Routes: []RouteConfig{
+			{Prefix: "/api/*"},
+			{Prefix: "/api/orders"},
+			{Prefix: "/api"}, // шире, чем /api/*
+			{Prefix: "/static/**"},
+		},
+	}
+
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/api/orders/5", "/api/orders"},
+		{"/api/users/5", "/api/*"},
+		{"/api", "/api"},
+		{"/static/a/b", "/static/**"},
+		{"/static", ""},
+		{"/nope", ""},
+	}
+
+	for _, tc := range cases {
+		route := cfg.GetRouteByPrefix(tc.path)
+		if tc.want == "" {
+			if route != nil {
+				t.Errorf("path %s: got %s, want nil", tc.path, route.Prefix)
+			}
+			continue
+		}
+		if route == nil {
+			t.Errorf("path %s: got nil, want %s", tc.path, tc.want)
+			continue
+		}
+		if route.Prefix != tc.want {
+			t.Errorf("path %s: got %s, want %s", tc.path, route.Prefix, tc.want)
+		}
+	}
+}
+
+func TestValidateRoutes_InvalidWildcardPrefix(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "api/*", Target: "http://x", SkipAuth: true},
+		},
+	}
+
+	if err := validateRoutes(cfg); err == nil {
+		t.Fatal("expected error for prefix without leading slash, got nil")
+	}
+}
