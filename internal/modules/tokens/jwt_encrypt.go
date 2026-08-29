@@ -44,8 +44,10 @@ type JWTModule struct {
 	config Config
 }
 
-// NewJWTService - конструктор сервиса
-func NewJWTService(config Config) *JWTModule {
+// NewJWTService - конструктор сервиса.
+// userStore нужен для RefreshAccessToken (по userID из refresh-токена
+// достаём пользователя и генерируем новый access с его актуальными данными).
+func NewJWTService(config Config, userStore users.UserStorage) *JWTModule {
 	if config.AccessTokenTTL == 0 {
 		config.AccessTokenTTL = pkg.DefaultJWTAccessTTL
 	}
@@ -55,7 +57,7 @@ func NewJWTService(config Config) *JWTModule {
 	if config.Issuer == "" {
 		config.Issuer = pkg.ServiceName
 	}
-	return &JWTModule{config: config}
+	return &JWTModule{config: config, users: userStore}
 }
 
 // GenerateAccessToken - создает access токен
@@ -177,6 +179,23 @@ func (s *JWTModule) RefreshAccessToken(refreshToken string) (string, error) {
 
 	// Генерируем новый access
 	return s.GenerateAccessToken(userID, user.Username, user.Email, user.Role)
+}
+
+// RefreshTokens обновляет пару токенов по refresh-токену.
+// Выдаём НОВЫЙ refresh (ротация): старый перестанет работать сразу после
+// экспирации, так что украденный refresh долго не проживёт.
+func (s *JWTModule) RefreshTokens(refreshToken string) (accessToken, newRefreshToken string, err error) {
+	userID, err := s.ValidateRefreshToken(refreshToken)
+	if err != nil {
+		return "", "", err
+	}
+
+	user, ok := s.users.GetByID(context.Background(), userID)
+	if !ok {
+		return "", "", ErrUserNotFound
+	}
+
+	return s.GenerateBothTokens(userID, user.Username, user.Email, user.Role)
 }
 
 // generateTokenID - генерирует уникальный ID для токена

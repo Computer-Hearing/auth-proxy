@@ -4,14 +4,14 @@ import (
 	"auth-proxy/pkg"
 	"errors"
 	"fmt"
-	"net"
-	"os"
-	"slices"
-
 	"github.com/caarlos0/env/v11"
 	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
+	"log/slog"
+	"net"
+	"os"
+	"slices"
 )
 
 var (
@@ -24,6 +24,7 @@ func Load() (*Config, error) {
 
 	// загружаем .env файл в переменные окружения если есть
 	// если читать либу, то он там не перезапишет уже имеющиеся переменные окружения
+	slog.Info("Loading env config from: /.env")
 	_ = godotenv.Load(".env")
 
 	// Парсим ENV (с дефолтами из тегов, включая Roles)
@@ -34,7 +35,8 @@ func Load() (*Config, error) {
 	// Загружаем конфиг из YAML (обязательный файл) - переопределяет всё, что в нём явно указано
 	configPath := os.Getenv("YAML_CONFIG_PATH")
 	if configPath == "" {
-		configPath = "config.yaml"
+		slog.Info("YAML_CONFIG_PATH env variable not set, using default: ./config.yaml")
+		configPath = "./config.yaml"
 	}
 
 	if err := loadFromYAML(configPath, cfg); err != nil {

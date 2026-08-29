@@ -1,12 +1,16 @@
 package config
 
 import (
+	"auth-proxy/internal/domain"
 	"time"
 )
 
 // Config - главная структура конфига
 type Config struct {
+	ENV       string        `env:"ENV" envDefault:"development" validate:"oneof=development production"`
 	Server    ServerConfig  `yaml:"server" validate:"required"`
+	Gateway   GatewayConfig `yaml:"gateway" validate:"required"`
+	Auth      AuthConfig    `yaml:"auth" validate:"required"`
 	JWT       JWTConfig     `yaml:"jwt" validate:"required"`
 	Bcrypt    BcryptConfig  `yaml:"bcrypt"`
 	Routes    []RouteConfig `yaml:"routes" validate:"required,min=1,dive"`
@@ -15,12 +19,27 @@ type Config struct {
 	Users     []User        `yaml:"users" validate:"dive"`
 }
 
+// GatewayConfig - внешний адрес гейта (auth-proxy),
+// на него auth-сервис возвращает пользователя после логина/обновления токена/
+// выхода через параметр next.
+type GatewayConfig struct {
+	BaseURL string `yaml:"base_url" env:"GATEWAY_BASE_URL" envDefault:"http://localhost:5000" validate:"required,url"`
+}
+
 // ServerConfig - настройки сервера
 type ServerConfig struct {
 	Port            int           `yaml:"port" env:"SERVER_PORT" envDefault:"5000" validate:"gte=1,lte=65535"`
 	ReadTimeout     time.Duration `yaml:"read_timeout" env:"SERVER_READ_TIMEOUT" envDefault:"5s" validate:"gte=1s"`
 	WriteTimeout    time.Duration `yaml:"write_timeout" env:"SERVER_WRITE_TIMEOUT" envDefault:"10s" validate:"gte=1s"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"SERVER_SHUTDOWN_TIMEOUT" envDefault:"10s" validate:"gte=1s"`
+}
+
+// AuthConfig - настройки auth-сервиса (второй http-слушатель в том же бинарнике)
+type AuthConfig struct {
+	// Port - порт, на котором отвечают /login /refresh /logout /user/me
+	Port int `yaml:"port" env:"AUTH_PORT" envDefault:"8081" validate:"gte=1,lte=65535"`
+	// BaseURL - внешний адрес auth-сервиса (для Location в редиректах гейта)
+	BaseURL string `yaml:"base_url" env:"AUTH_BASE_URL" validate:"required,url"`
 }
 
 // JWTConfig - настройки JWT (обязательные секреты из ENV)
@@ -55,4 +74,22 @@ type User struct {
 	Email    string `yaml:"email" json:"email" validate:"omitempty,email"`
 	FullName string `yaml:"full_name" json:"full_name"`
 	Role     string `yaml:"role" json:"role" validate:"required"`
+}
+
+// ToDomainUsers превращает юзеров конфига в доменные (для users-кеша).
+// Поля зовутся по-разному (login -> username, full_name -> first_name),
+// а пароль в конфиге уже лежит BCrypt-хешем - после validateRoutes.
+func (c *Config) ToDomainUsers() []domain.User {
+	users := make([]domain.User, 0, len(c.Users))
+	for _, u := range c.Users {
+		users = append(users, domain.User{
+			ID:             u.ID,
+			Username:       u.Login,
+			Email:          u.Email,
+			FirstName:      u.FullName,
+			HashedPassword: u.Password,
+			Role:           u.Role,
+		})
+	}
+	return users
 }

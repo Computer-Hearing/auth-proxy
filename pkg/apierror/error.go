@@ -23,6 +23,16 @@ var (
 		StatusCode: http.StatusForbidden,
 		Message:    "ip is blacklisted",
 	}
+	// ErrUnauthorized - нет токена или он невалидной (клиент не вошёл)
+	ErrUnauthorized error = APIError{
+		StatusCode: http.StatusUnauthorized,
+		Message:    "unauthorized",
+	}
+	// ErrForbidden - токен валиден, но роль недостаточна для маршрута
+	ErrForbidden error = APIError{
+		StatusCode: http.StatusForbidden,
+		Message:    "forbidden: insufficient role",
+	}
 )
 
 type APIError struct {

@@ -1,36 +1,19 @@
+# внешний адрес гейта - на него auth-сервис возвращает пользователя после логина/выхода
+gateway:
+  base_url: "http://localhost:5000"
+
+# auth-сервис: порт слушателя и внешний адрес (для редиректов гейта на /login, /refresh)
+auth:
+  port: 8081
+  base_url: "http://localhost:8081"
+
 roles:
   - "user"
   - "admin"
   - "superadmin"
 
 routes:
-  - prefix: "/api/users"
-    target: "http://users_service:8081"
-    skip_auth: false
-
-  - prefix: "/api/users/delete"
-    target: "http://users_service:8081"
-    skip_auth: false
-    required_roles:
-      - "superadmin"
-      - "admin"
-
-  - prefix: "/api/reports"
-    target: "http://reports_service:8082"
-    skip_auth: false
-    required_roles:
-        - "superadmin"
-        - "admin"
-        - "user"
-
-  - prefix: "/api/admin"
-    target: "http://admin_service:8083"
-    skip_auth: false
-    required_roles:
-      - "superadmin"
-
-  # статика всегда пропускается: wildcard ** + skip_auth
-  - prefix: "/static/**"
+  - prefix: "/**/*.js"
     target: "http://static_service:8084"
     skip_auth: true
     strip_first_prefix: true
@@ -48,8 +31,8 @@ blacklist:
 
 users:
   - id: 1
-    login: "admin"
-    password: "adminpass"
-    email: "admin@example.com"
-    full_name: "Admin"
+    login: "superadmin"
+    password: "superadmin"
+    email: "superadmin@example.com"
+    full_name: "Superadmin"
     role: "superadmin"

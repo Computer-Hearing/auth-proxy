@@ -1,6 +1,7 @@
 package tokens
 
 import (
+	"auth-proxy/internal/modules/users"
 	"testing"
 	"time"
 )
@@ -11,7 +12,9 @@ func TestJWTService(t *testing.T) {
 		AccessTokenTTL:  5 * time.Minute,
 		RefreshTokenTTL: 1 * time.Hour,
 	}
-	service := NewJWTService(config)
+	// хранилище в этом тесте не используется (только генерация/валидация),
+	// поэтому передаём пустое значение
+	service := NewJWTService(config, users.UserStorage{})
 
 	// Тест генерации
 	token, err := service.GenerateAccessToken(1, "test-username", "test@test.com", "user")
@@ -32,7 +35,7 @@ func TestJWTService(t *testing.T) {
 	// Тест с истекшим токеном
 	config2 := config
 	config2.AccessTokenTTL = -1 * time.Second
-	service2 := NewJWTService(config2)
+	service2 := NewJWTService(config2, users.UserStorage{})
 	expiredToken, _ := service2.GenerateAccessToken(1, "test-username", "test@test.com", "user")
 
 	_, err = service.ValidateAccessToken(expiredToken)

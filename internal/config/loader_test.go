@@ -61,6 +61,10 @@ func TestValidateRoutes_UnknownRole(t *testing.T) {
 
 func TestLoad_YAMLPopulatesRolesAndBlacklist(t *testing.T) {
 	yamlContent := `
+auth:
+  port: 8081
+  base_url: "http://localhost:8081"
+
 roles:
   - "guest"
   - "member"
@@ -108,6 +112,10 @@ func TestLoad_RolesEnvDefaultWhenNotInYAML(t *testing.T) {
 	}
 
 	yamlContent := `
+auth:
+  port: 8081
+  base_url: "http://localhost:8081"
+
 routes:
   - prefix: "/api"
     target: "http://backend:8080"
@@ -130,6 +138,103 @@ routes:
 	wantRoles := []string{"user", "admin", "superadmin"}
 	if !slices.Equal(cfg.Roles, wantRoles) {
 		t.Errorf("roles: got %v, want default %v", cfg.Roles, wantRoles)
+	}
+}
+
+func TestLoad_MissingAuthBaseURL(t *testing.T) {
+	// добиваемся, чтобы AUTH_BASE_URL пришёл пустым из окружения
+	if prev, ok := os.LookupEnv("AUTH_BASE_URL"); ok {
+		os.Unsetenv("AUTH_BASE_URL")
+		t.Cleanup(func() { os.Setenv("AUTH_BASE_URL", prev) })
+	}
+
+	yamlContent := `
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when Auth.BaseURL is missing, got nil")
+	}
+}
+
+func TestLoad_DefaultAuthPort(t *testing.T) {
+	// добиваемся, чтобы AUTH_PORT не был задан (проверяем envDefault)
+	if prev, ok := os.LookupEnv("AUTH_PORT"); ok {
+		os.Unsetenv("AUTH_PORT")
+		t.Cleanup(func() { os.Setenv("AUTH_PORT", prev) })
+	}
+
+	yamlContent := `
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+	t.Setenv("AUTH_BASE_URL", "http://localhost:8081")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Auth.Port != 8081 {
+		t.Errorf("Auth.Port: got %d, want default 8081", cfg.Auth.Port)
+	}
+	if cfg.Auth.BaseURL != "http://localhost:8081" {
+		t.Errorf("Auth.BaseURL: got %q", cfg.Auth.BaseURL)
+	}
+}
+
+func TestLoad_DefaultGatewayBaseURL(t *testing.T) {
+	// добиваемся, чтобы GATEWAY_BASE_URL не был задан (проверяем envDefault)
+	if prev, ok := os.LookupEnv("GATEWAY_BASE_URL"); ok {
+		os.Unsetenv("GATEWAY_BASE_URL")
+		t.Cleanup(func() { os.Setenv("GATEWAY_BASE_URL", prev) })
+	}
+
+	yamlContent := `
+auth:
+  base_url: "http://localhost:8081"
+
+routes:
+  - prefix: "/api"
+    target: "http://backend:8080"
+    skip_auth: true
+`
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	t.Setenv("YAML_CONFIG_PATH", configPath)
+	t.Setenv("JWT_ACCESS_SECRET", "supersecret-access-key-32-chars-min")
+	t.Setenv("JWT_REFRESH_SECRET", "supersecret-refresh-key-32-chars-min")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Gateway.BaseURL != "http://localhost:5000" {
+		t.Errorf("Gateway.BaseURL: got %q, want default http://localhost:5000", cfg.Gateway.BaseURL)
 	}
 }
 
