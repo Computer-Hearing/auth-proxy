@@ -243,3 +243,56 @@ func TestValidateRoutes_NoUsers_AutoSuperAdmin(t *testing.T) {
 		t.Fatalf("expected auto superadmin, got %d users", len(cfg.Users))
 	}
 }
+
+func TestGetRouteByPrefix_Wildcard(t *testing.T) {
+	cfg := &Config{
+		Routes: []RouteConfig{
+			{Prefix: "/api/*"},
+			{Prefix: "/api/orders"},
+			{Prefix: "/api"}, // шире, чем /api/*
+			{Prefix: "/static/**"},
+		},
+	}
+
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/api/orders/5", "/api/orders"},
+		{"/api/users/5", "/api/*"},
+		{"/api", "/api"},
+		{"/static/a/b", "/static/**"},
+		{"/static", ""},
+		{"/nope", ""},
+	}
+
+	for _, tc := range cases {
+		route := cfg.GetRouteByPrefix(tc.path)
+		if tc.want == "" {
+			if route != nil {
+				t.Errorf("path %s: got %s, want nil", tc.path, route.Prefix)
+			}
+			continue
+		}
+		if route == nil {
+			t.Errorf("path %s: got nil, want %s", tc.path, tc.want)
+			continue
+		}
+		if route.Prefix != tc.want {
+			t.Errorf("path %s: got %s, want %s", tc.path, route.Prefix, tc.want)
+		}
+	}
+}
+
+func TestValidateRoutes_InvalidWildcardPrefix(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "api/*", Target: "http://x", SkipAuth: true},
+		},
+	}
+
+	if err := validateRoutes(cfg); err == nil {
+		t.Fatal("expected error for prefix without leading slash, got nil")
+	}
+}

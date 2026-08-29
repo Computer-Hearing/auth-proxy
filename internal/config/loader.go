@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/go-playground/validator/v10"
@@ -89,6 +88,11 @@ func validateRoutes(cfg *Config) error {
 		}
 		if route.Target == "" {
 			return fmt.Errorf("route[%d]: target is required", i)
+		}
+
+		// Проверяем, что prefix парсится как паттерн маршрута
+		if _, err := pkg.CachedRoutePattern(route.Prefix); err != nil {
+			return fmt.Errorf("route[%d]: invalid prefix %q: %w", i, route.Prefix, err)
 		}
 
 		// Проверяем, что required_roles существуют в общем списке ролей
@@ -198,17 +202,25 @@ func (c *Config) IsIPBlacklisted(ipStr string) bool {
 	return false
 }
 
-// GetRouteByPrefix ищет маршрут по префиксу (самый длинный совпадающий)
+// GetRouteByPrefix ищет маршрут по пути (самое специфичное совпадение:
+// длиннее литеральная часть, затем длиннее паттерн, затем раньше в конфиге).
+// Первый совпавший маршрут при равной специфичности и есть самый ранний в конфиге.
 func (c *Config) GetRouteByPrefix(path string) *RouteConfig {
 	var best *RouteConfig
-	bestLen := -1
+	var bestPattern *pkg.RoutePattern
 
-	for _, route := range c.Routes {
-		if strings.HasPrefix(path, route.Prefix) {
-			if len(route.Prefix) > bestLen {
-				bestLen = len(route.Prefix)
-				best = &route
-			}
+	for i, route := range c.Routes {
+		pattern, err := pkg.CachedRoutePattern(route.Prefix)
+		if err != nil {
+			continue
+		}
+		if !pattern.Match(path) {
+			continue
+		}
+
+		if best == nil || pattern.MoreSpecific(bestPattern) {
+			best = &c.Routes[i]
+			bestPattern = pattern
 		}
 	}
 

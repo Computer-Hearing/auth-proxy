@@ -197,6 +197,108 @@ func TestNewRoutesProxy_Errors(t *testing.T) {
 	}); err == nil {
 		t.Error("expected error for invalid target url")
 	}
+
+	if _, err := NewRoutesProxy(&config.Config{
+		Routes: []config.RouteConfig{{Prefix: "api/*", Target: "http://x", SkipAuth: true}},
+	}); err == nil {
+		t.Error("expected error for prefix without leading slash")
+	}
+}
+
+func TestRoutesProxy_ServeHTTP_WildcardLiteralBeats(t *testing.T) {
+	orders := &pathRecorder{}
+	wild := &pathRecorder{}
+
+	ordersSrv := startBackend(t, orders.ServeHTTPName("orders"))
+	wildSrv := startBackend(t, wild.ServeHTTPName("wild"))
+
+	rp := buildProxy(t, []config.RouteConfig{
+		{Prefix: "/api/*", Target: wildSrv.URL, SkipAuth: true},
+		{Prefix: "/api/orders", Target: ordersSrv.URL, SkipAuth: true},
+	})
+
+	if rec := serveRoutes(t, rp, "/api/orders/5"); rec.Code != http.StatusOK {
+		t.Fatalf("orders: got code %d, want %d", rec.Code, http.StatusOK)
+	}
+	if rec := serveRoutes(t, rp, "/api/users/5"); rec.Code != http.StatusOK {
+		t.Fatalf("wild: got code %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if got, want := orders.Paths(), []string{"/api/orders/5"}; !equalStrings(got, want) {
+		t.Errorf("orders backend paths: got %v, want %v", got, want)
+	}
+	if got, want := wild.Paths(), []string{"/api/users/5"}; !equalStrings(got, want) {
+		t.Errorf("wild backend paths: got %v, want %v", got, want)
+	}
+}
+
+func TestRoutesProxy_ServeHTTP_WildcardMidPath(t *testing.T) {
+	recorder := &pathRecorder{}
+	backend := startBackend(t, recorder.ServeHTTPName("v1"))
+
+	rp := buildProxy(t, []config.RouteConfig{
+		{Prefix: "/api/*/v1", Target: backend.URL, SkipAuth: true},
+	})
+
+	if rec := serveRoutes(t, rp, "/api/x/v1/anything"); rec.Code != http.StatusOK {
+		t.Errorf("match: got code %d, want %d", rec.Code, http.StatusOK)
+	}
+	if rec := serveRoutes(t, rp, "/api/x/v2"); rec.Code != http.StatusNotFound {
+		t.Errorf("no-match: got code %d, want %d", rec.Code, http.StatusNotFound)
+	}
+
+	if got, want := recorder.Paths(), []string{"/api/x/v1/anything"}; !equalStrings(got, want) {
+		t.Errorf("backend paths: got %v, want %v", got, want)
+	}
+}
+
+func TestRoutesProxy_ServeHTTP_WildcardStaticWithStrip(t *testing.T) {
+	recorder := &pathRecorder{}
+	backend := startBackend(t, recorder.ServeHTTPName("static"))
+
+	rp := buildProxy(t, []config.RouteConfig{
+		{Prefix: "/static/**", Target: backend.URL, SkipAuth: true, StripFirstPrefix: true},
+	})
+
+	cases := map[string]string{
+		"/static/a/b":    "/a/b",
+		"/static/app.js": "/app.js",
+		"/static/":       "/",
+		"/static":        "",
+	}
+	for path, want := range cases {
+		rec := serveRoutes(t, rp, path)
+		if want == "" {
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("%s: got code %d, want %d", path, rec.Code, http.StatusNotFound)
+			}
+			continue
+		}
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: got code %d, want %d", path, rec.Code, http.StatusOK)
+		}
+
+		paths := recorder.Paths()
+		if len(paths) == 0 || paths[len(paths)-1] != want {
+			t.Errorf("%s: backend path got %q, want %q", path, paths, want)
+		}
+	}
+}
+
+func TestRoutesProxy_ServeHTTP_WildcardFileRoot(t *testing.T) {
+	recorder := &pathRecorder{}
+	backend := startBackend(t, recorder.ServeHTTPName("assets"))
+
+	rp := buildProxy(t, []config.RouteConfig{
+		{Prefix: "/*.js", Target: backend.URL, SkipAuth: true},
+	})
+
+	if rec := serveRoutes(t, rp, "/app.js"); rec.Code != http.StatusOK {
+		t.Errorf("match: got code %d, want %d", rec.Code, http.StatusOK)
+	}
+	if rec := serveRoutes(t, rp, "/static/app.js"); rec.Code != http.StatusNotFound {
+		t.Errorf("no cross-segment match: got code %d, want %d", rec.Code, http.StatusNotFound)
+	}
 }
 
 func equalStrings(a, b []string) bool {

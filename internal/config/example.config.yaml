@@ -29,6 +29,12 @@ routes:
     required_roles:
       - "superadmin"
 
+  # статика всегда пропускается: wildcard ** + skip_auth
+  - prefix: "/static/**"
+    target: "http://static_service:8084"
+    skip_auth: true
+    strip_first_prefix: true
+
   # редирект-маршрут: вместо проксирования отвечаем 302 на target + путь запроса
   # с strip_first_prefix: true первый сегмент пути вырезается: /inference/api/v1 -> login_service/login/api/v1
   - prefix: "/inference"
