@@ -1,6 +1,8 @@
 package auth
 
 import (
+	_ "embed" // для //go:embed login_form.html
+
 	"auth-proxy/internal/config"
 	"auth-proxy/internal/modules/tokens"
 	"auth-proxy/internal/modules/users"
@@ -213,26 +215,13 @@ func (s *Service) clearCookie(w http.ResponseWriter, name string) {
 	})
 }
 
-// loginFormTemplate - простенькая HTML-форма входа.
-// html/template экранирует подставляемые значения (next, error),
-// так что записать туда инъекцию через query-параметр не выйдет.
-var loginFormTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <title>Вход</title>
-</head>
-<body>
-  <h2>Вход в систему</h2>
-  {{if .Error}}<p style="color:red">{{.Error}}</p>{{end}}
-  <form method="POST" action="/login">
-    <input type="hidden" name="next" value="{{.Next}}">
-    <label>Логин: <input type="text" name="username" required></label><br><br>
-    <label>Пароль: <input type="password" name="password" required></label><br><br>
-    <button type="submit">Войти</button>
-  </form>
-</body>
-</html>`))
+// loginFormTemplate - HTML-форма входа, файл рядом (go:embed),
+// на этапе сборки вкомпилируется в бинарь.
+//
+//go:embed login_form.html
+var loginFormHTML string
+
+var loginFormTemplate = template.Must(template.New("login").Parse(loginFormHTML))
 
 type loginFormData struct {
 	Next  string
