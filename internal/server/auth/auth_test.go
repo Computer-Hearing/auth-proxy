@@ -17,6 +17,22 @@ import (
 
 const testSecret = "supersecret-access-key-32-chars-min"
 
+// healthz должен отвечать 200 без кук и токенов
+func TestHealthz(t *testing.T) {
+	s, _ := newTestService(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Errorf("body: got %q, want status ok", rec.Body.String())
+	}
+}
+
 // newTestService собирает Service с одним пользователем в хранилище
 func newTestService(t *testing.T) (*Service, users.UserStorage) {
 	t.Helper()
