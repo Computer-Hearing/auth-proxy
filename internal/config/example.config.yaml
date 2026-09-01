@@ -4,8 +4,8 @@ gateway:
 
 # auth-сервис: порт слушателя и внешний адрес (для редиректов гейта на /login, /refresh)
 auth:
-  port: 8081
-  base_url: "http://localhost:8081"
+  port: 6000
+  base_url: "http://localhost:6000"
 
 roles:
   - "user"

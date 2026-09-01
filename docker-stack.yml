@@ -5,10 +5,10 @@ services:
     image: impeaone/auth-proxy:latest
     configs:
       - source: auth_proxy_config
-        target: /app/config.yaml
+        target: /etc/auth-proxy/config.yaml
     environment:
-      # Куда класть конфиг
-      YAML_CONFIG_PATH: /app/config.yaml
+      # Где само приложение будет искать конфиг (опционально), default - /etc/auth-proxy/config.yaml
+      YAML_CONFIG_PATH: /etc/auth-proxy/config.yaml
       # production => Secure-куки (требуется HTTPS перед гейтом и auth-сервисом)
       ENV: production
       # Внешние адреса
@@ -16,7 +16,7 @@ services:
       AUTH_BASE_URL: https://auth.example.com
     ports:
       - "5000:5000"  # гейт
-      - "8081:8081"  # auth-сервис
+      - "6000:6000"  # auth-сервис
     deploy:
       replicas: 1
       update_config:

@@ -37,7 +37,7 @@ type ServerConfig struct {
 // AuthConfig - настройки auth-сервиса (второй http-слушатель в том же бинарнике)
 type AuthConfig struct {
 	// Port - порт, на котором отвечают /login /refresh /logout /user/me
-	Port int `yaml:"port" env:"AUTH_PORT" envDefault:"8081" validate:"gte=1,lte=65535"`
+	Port int `yaml:"port" env:"AUTH_PORT" envDefault:"6000" validate:"gte=1,lte=65535"`
 	// BaseURL - внешний адрес auth-сервиса (для Location в редиректах гейта)
 	BaseURL string `yaml:"base_url" env:"AUTH_BASE_URL" validate:"required,url"`
 }
