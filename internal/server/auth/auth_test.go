@@ -79,6 +79,31 @@ func newTestService(t *testing.T) (*Service, users.UserStorage) {
 	return svc, *storage
 }
 
+// Кука должна нести указанный Domain, чтобы её видели все поддомены.
+// net/http в Cookie.Domain отдаёт без ведущей точки - проверяем хвост.
+func TestLogin_POST_SetsCookieDomain(t *testing.T) {
+	s, _ := newTestService(t)
+	s.cfg.JWT.CookieDomain = ".example.com" // включаем домен для кук
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=testuser&password=secret"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rec.Code)
+	}
+	got := rec.Result().Cookies()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 cookies, got %d", len(got))
+	}
+	for _, c := range got {
+		if c.Domain != "example.com" {
+			t.Errorf("cookie %q: Domain = %q, want %q (исходно .example.com)", c.Name, c.Domain, "example.com")
+		}
+	}
+}
+
 func doRequest(t *testing.T, s *Service, method, target string, prepare func(*http.Request)) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, target, nil)

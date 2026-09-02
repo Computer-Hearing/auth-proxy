@@ -46,6 +46,7 @@ type AuthConfig struct {
 type JWTConfig struct {
 	AccessCookieKey  string        `yaml:"access_cookie_key" env:"JWT_ACCESS_COOKIE_KEY" envDefault:"access_token"`
 	RefreshCookieKey string        `yaml:"refresh_cookie_key" env:"JWT_REFRESH_COOKIE_KEY" envDefault:"refresh_token"`
+	CookieDomain     string        `yaml:"cookie_domain" env:"JWT_COOKIE_DOMAIN"`
 	AccessSecret     string        `yaml:"access_secret" env:"JWT_ACCESS_SECRET" validate:"required,min=32"`
 	RefreshSecret    string        `yaml:"refresh_secret" env:"JWT_REFRESH_SECRET" validate:"required,min=32"`
 	AccessTTL        time.Duration `yaml:"access_ttl" env:"JWT_ACCESS_TTL" envDefault:"15m" validate:"gte=1m"`

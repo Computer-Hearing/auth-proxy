@@ -59,6 +59,7 @@ docker stack deploy -c docker-stack.yml auth-proxy
 | `GATEWAY_BASE_URL`, `AUTH_BASE_URL` | внешние адреса (домены), а не `localhost` — редиректы после логина |
 | HTTPS перед обоими портами | терминация TLS (nginx/traefik/swarm ingress), иначе `Secure`-куки не сохранятся |
 | свои `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (≥32 символа) | в `config.yaml` или ENV; держать в секрете |
+| `JWT_COOKIE_DOMAIN` (напр. `.example.com`) | когда гейт и auth-сервис на разных поддоменах: кука должна жить на общем домене, иначе её не увидит второй поддомен |
 
 ### Проверка живости
 
