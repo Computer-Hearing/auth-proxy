@@ -25,8 +25,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	fmt.Printf("Config: %+v\n", cfg)
+
 	logger := slog.Default()
+	logger.Info("Cookie domain", cfg.JWT.CookieDomain)
 	logger.Info("starting auth-proxy", "version", version)
 
 	// Общее хранилище пользователей: гейт и auth-сервис работают
