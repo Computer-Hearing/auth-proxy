@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  auth-proxy:
+    build:
+      context: .
+      args:
+        VERSION: dev
+    image: auth-proxy:dev
+    environment:
+      ENV: development
+      SERVER_PORT: "5000"
+    volumes:
+      - ./config.yaml:/etc/auth-proxy/config.yaml:ro
+    ports:
+      - "5000:5000"   # гейт
+      - "6000:6000"   # auth-сервис
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5000/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

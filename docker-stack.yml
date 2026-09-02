@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  auth-proxy:
+    image: impeaone/auth-proxy:latest
+    configs:
+      - source: auth_proxy_config
+        target: /etc/auth-proxy/config.yaml
+    environment:
+      # Где само приложение будет искать конфиг (опционально), default - /etc/auth-proxy/config.yaml
+      YAML_CONFIG_PATH: /etc/auth-proxy/config.yaml
+      # production => Secure-куки (требуется HTTPS перед гейтом и auth-сервисом)
+      ENV: production
+      # Внешние адреса
+      GATEWAY_BASE_URL: https://proxy.example.com
+      AUTH_BASE_URL: https://auth.example.com
+    ports:
+      - "5000:5000"  # гейт
+      - "6000:6000"  # auth-сервис
+    deploy:
+      replicas: 1
+      update_config:
+        order: start-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5000/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+configs:
+  auth_proxy_config:
+    file: ./config.yaml

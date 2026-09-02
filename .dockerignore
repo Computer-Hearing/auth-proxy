@@ -1,0 +1,19 @@
+# Секреты и локальные конфиги - не попадают в образ
+.env
+config.yaml
+internal/config/example.env
+internal/config/example.config.yaml
+internal/config/README.md
+
+# VCS
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+docker-stack.yml
+docker-compose.yml
+
+# Артефакты сборки
+*.md

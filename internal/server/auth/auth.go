@@ -63,6 +63,14 @@ func New(opts *Options) (*Service, error) {
 // Handler собирает mux auth-сервиса
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}` + "\n"))
+	})
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/refresh", s.handleRefresh)
 	mux.HandleFunc("/logout", s.handleLogout)

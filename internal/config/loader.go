@@ -35,8 +35,8 @@ func Load() (*Config, error) {
 	// Загружаем конфиг из YAML (обязательный файл) - переопределяет всё, что в нём явно указано
 	configPath := os.Getenv("YAML_CONFIG_PATH")
 	if configPath == "" {
-		slog.Info("YAML_CONFIG_PATH env variable not set, using default: ./config.yaml")
-		configPath = "./config.yaml"
+		slog.Info("YAML_CONFIG_PATH env variable not set, using default: /etc/auth-proxy/config.yaml")
+		configPath = "/etc/auth-proxy/config.yaml"
 	}
 
 	if err := loadFromYAML(configPath, cfg); err != nil {

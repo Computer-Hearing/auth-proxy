@@ -17,6 +17,9 @@ import (
 	"syscall"
 )
 
+// version подставляется при сборке: -ldflags "-X main.version=v1.2.3"
+var version = "dev"
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -24,6 +27,7 @@ func main() {
 	}
 
 	logger := slog.Default()
+	logger.Info("starting auth-proxy", "version", version)
 
 	// Общее хранилище пользователей: гейт и auth-сервис работают
 	// с одним и тем же набором пользователей из конфига.
@@ -60,7 +64,7 @@ func main() {
 
 	gatewayServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:      handler,
+		Handler:      newGatewayHandlerWithHealthz(handler, version),
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
@@ -106,4 +110,19 @@ func serve(name string, srv *http.Server, logger *slog.Logger, errCh chan<- erro
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		errCh <- fmt.Errorf("%s server: %w", name, err)
 	}
+}
+
+// newGatewayHandler вешает /healthz рядом с прокси-хендлером
+func newGatewayHandlerWithHealthz(proxy http.Handler, version string) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","version":%q}`+"\n", version)
+	})
+	mux.Handle("/", proxy)
+	return mux
 }
