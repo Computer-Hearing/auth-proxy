@@ -4,7 +4,7 @@
 Один бинарник поднимает два HTTP-слушателя:
 
 - **гейт** (`server.port`, по умолчанию 5000) — проксирует трафик после проверки access/refresh-кук и роли;
-- **auth-сервис** (`auth.port`, по умолчанию 8081) — `/login`, `/refresh`, `/logout`, `/user/me`.
+- **auth-сервис** (`auth.port`, по умолчанию 6000) — `/login`, `/refresh`, `/logout`, `/user/me`.
 
 ## Быстрый старт локально
 
@@ -34,8 +34,8 @@ go run ./cmd/proxy
 docker compose up -d --build
 ```
 
-Конфиг монтируется из `./config.yaml` в `/app/config.yaml` (read-only), порты гейта и
-auth-сервиса публикуются как 5000/8081.
+Конфиг монтируется из `./config.yaml` в `/etc/auth-proxy/config.yaml` (read-only), порты гейта и
+auth-сервиса публикуются как 5000/6000.
 
 ### Docker Swarm
 
@@ -44,7 +44,7 @@ docker stack deploy -c docker-stack.yml auth-proxy
 ```
 
 Файл конфига (`./config.yaml`) раздаётся на все ноды как **docker config** и монтируется
-в `/app/config.yaml`. После правки конфига:
+в `/etc/auth-proxy/config.yaml`. После правки конфига:
 
 ```bash
 docker config rm auth_proxy_config
