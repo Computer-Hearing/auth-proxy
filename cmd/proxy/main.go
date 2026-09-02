@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-
+	fmt.Printf("Config: %+v\n", cfg)
 	logger := slog.Default()
 	logger.Info("starting auth-proxy", "version", version)
 
