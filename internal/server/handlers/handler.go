@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"auth-proxy/internal/config"
+	"auth-proxy/internal/middleware"
 	"auth-proxy/internal/modules/routes"
 	"auth-proxy/internal/modules/tokens"
 	"auth-proxy/pkg"
@@ -20,6 +21,8 @@ type Options struct {
 	Logger *slog.Logger
 	Config *config.Config
 	JWT    *tokens.JWTModule
+
+	AppVersion string
 }
 
 var (
@@ -33,6 +36,8 @@ type AuthProxy struct {
 	logger *slog.Logger
 	proxy  *routes.RoutesProxy
 	jwt    *tokens.JWTModule
+
+	appVersion string
 }
 
 func NewHandlers(opts *Options) (*AuthProxy, error) {
@@ -53,7 +58,21 @@ func NewHandlers(opts *Options) (*AuthProxy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new routes proxy: %w", err)
 	}
-	return &AuthProxy{cfg: cfg, logger: logger, proxy: proxy, jwt: opts.JWT}, nil
+	return &AuthProxy{cfg: cfg, logger: logger, proxy: proxy, jwt: opts.JWT, appVersion: opts.AppVersion}, nil
+}
+
+func (h *AuthProxy) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","version":%q}`+"\n", h.appVersion)
+	})
+	mux.Handle("/", h)
+	return middleware.Chain(mux, middleware.Recover, middleware.RequestID, middleware.Log)
 }
 
 func (h *AuthProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {

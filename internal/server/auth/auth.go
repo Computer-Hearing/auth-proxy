@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"auth-proxy/internal/middleware"
 	_ "embed" // для //go:embed login_form.html
 
 	"auth-proxy/internal/config"
@@ -75,7 +76,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("/refresh", s.handleRefresh)
 	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/user/me", s.handleMe)
-	return mux
+	return middleware.Chain(mux, middleware.Recover, middleware.RequestID, middleware.Log)
 }
 
 // handleLogin: GET - HTML-форма, POST - проверка пароля и установка кук.

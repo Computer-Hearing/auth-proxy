@@ -52,9 +52,10 @@ func main() {
 
 	// Гейт: проксирует трафик после проверки токенов и ролей
 	handler, err := handlers.NewHandlers(&handlers.Options{
-		Logger: logger.With(slog.String("component", "gateway-handler")),
-		Config: cfg,
-		JWT:    jwtModule,
+		Logger:     logger.With(slog.String("component", "gateway-handler")),
+		Config:     cfg,
+		JWT:        jwtModule,
+		AppVersion: version,
 	})
 	if err != nil {
 		log.Fatal(err.Error())
@@ -73,7 +74,7 @@ func main() {
 
 	gatewayServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:      newGatewayHandlerWithHealthz(handler, version),
+		Handler:      handler.Handler(),
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
@@ -121,21 +122,6 @@ func serve(name string, srv *http.Server, logger *slog.Logger, errCh chan<- erro
 	}
 }
 
-// newGatewayHandler вешает /healthz рядом с прокси-хендлером
-func newGatewayHandlerWithHealthz(proxy http.Handler, version string) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","version":%q}`+"\n", version)
-	})
-	mux.Handle("/", proxy)
-	return mux
-}
-
 // printBanner выводит красивый баннер с названием программы
 func printBanner() {
 	banner := `
@@ -155,12 +141,12 @@ func printBanner() {
     ║    ██║     ██║  ██║╚██████╔╝██╔╝ ██╗ ██║         ║
     ║    ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝ ╚═╝         ║
     ║                                                  ║
-    ║                AUTH-PROXY v1.0.0                 ║
     ║       Authentication & Authorization Proxy       ║
     ║                                                  ║
     ╚══════════════════════════════════════════════════╝
     `
 	fmt.Println(banner)
+	fmt.Println("Version:", version)
 }
 
 func printConfig(logger *slog.Logger, cfg *config.Config) {
