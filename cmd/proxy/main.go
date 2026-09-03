@@ -21,18 +21,26 @@ import (
 var version = "dev"
 
 func main() {
+	printBanner()
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 
-	logger := slog.Default()
-	logger.Info("Cookie domain", cfg.JWT.CookieDomain)
-	logger.Info("starting auth-proxy", "version", version)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slogLevel(cfg.LogLevel),
+		AddSource: slogLevel(cfg.LogLevel) == slog.LevelDebug,
+	}))
+	slog.SetDefault(logger)
+
+	// Выводим конфиг для дебага
+	printConfig(logger, cfg)
 
 	// Общее хранилище пользователей: гейт и auth-сервис работают
 	// с одним и тем же набором пользователей из конфига.
-	userStorage := users.NewUsersCache(&users.UserStorageConfig{Logger: logger})
+	userStorage := users.NewUsersCache(&users.UserStorageConfig{
+		Logger: logger.With(slog.String("component", "user-storage"))})
 	userStorage.LoadUsers(context.Background(), cfg.ToDomainUsers())
 
 	// Общий JWT-модуль: гейт валидирует access-токены, auth-сервис их выдаёт.
@@ -44,7 +52,7 @@ func main() {
 
 	// Гейт: проксирует трафик после проверки токенов и ролей
 	handler, err := handlers.NewHandlers(&handlers.Options{
-		Logger: logger,
+		Logger: logger.With(slog.String("component", "gateway-handler")),
 		Config: cfg,
 		JWT:    jwtModule,
 	})
@@ -54,7 +62,7 @@ func main() {
 
 	// Auth-сервис: /login /refresh /logout /user/me (отдельный порт)
 	authService, err := auth.New(&auth.Options{
-		Logger: logger,
+		Logger: logger.With(slog.String("component", "auth-handler")),
 		Config: cfg,
 		JWT:    jwtModule,
 		Users:  *userStorage,
@@ -79,8 +87,8 @@ func main() {
 
 	// Запускаем оба сервера параллельно; ошибка любого из них - фатальная
 	errCh := make(chan error, 2)
-	go serve("gateway", gatewayServer, logger, errCh)
-	go serve("auth", authServer, logger, errCh)
+	go serve("gateway", gatewayServer, logger.With(slog.String("component", "gateway-server")), errCh)
+	go serve("auth", authServer, logger.With(slog.String("component", "auth-server")), errCh)
 
 	// Ждём сигнала выключения или ошибки сервера
 	stop := make(chan os.Signal, 1)
@@ -126,4 +134,104 @@ func newGatewayHandlerWithHealthz(proxy http.Handler, version string) http.Handl
 	})
 	mux.Handle("/", proxy)
 	return mux
+}
+
+// printBanner выводит красивый баннер с названием программы
+func printBanner() {
+	banner := `
+    ╔══════════════════════════════════════════════════╗
+    ║                                                  ║
+    ║     █████╗ ██╗   ██╗████████╗██╗  ██╗            ║
+    ║    ██╔══██╗██║   ██║╚══██╔══╝██║  ██║            ║
+    ║    ███████║██║   ██║   ██║   ███████║            ║
+    ║    ██╔══██║██║   ██║   ██║   ██╔══██║            ║
+    ║    ██║  ██║╚██████╔╝   ██║   ██║  ██║            ║
+    ║    ╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝            ║
+    ║                                                  ║
+    ║    ██████╗ ██████╗  ██████╗ ██╗  ██╗██╗   ██╗    ║
+    ║    ██╔══██╗██╔══██╗██╔═══██╗╚██╗██╔╝╚██╗ ██╔╝    ║
+    ║    ██████╔╝██████╔╝██║   ██║ ╚███╔╝  ╚════╝      ║
+    ║    ██╔═══╝ ██╔══██╗██║   ██║ ██╔██╗  ██╔═══╝     ║
+    ║    ██║     ██║  ██║╚██████╔╝██╔╝ ██╗ ██║         ║
+    ║    ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝ ╚═╝         ║
+    ║                                                  ║
+    ║                AUTH-PROXY v1.0.0                 ║
+    ║       Authentication & Authorization Proxy       ║
+    ║                                                  ║
+    ╚══════════════════════════════════════════════════╝
+    `
+	fmt.Println(banner)
+}
+
+func printConfig(logger *slog.Logger, cfg *config.Config) {
+	if logger == nil || cfg == nil {
+		return
+	}
+
+	// Собираем все в один структурный лог
+	configMap := map[string]interface{}{
+		"env":       cfg.ENV,
+		"log_level": cfg.LogLevel,
+		"version":   version,
+		"server": map[string]interface{}{
+			"port":             cfg.Server.Port,
+			"read_timeout":     cfg.Server.ReadTimeout.String(),
+			"write_timeout":    cfg.Server.WriteTimeout.String(),
+			"shutdown_timeout": cfg.Server.ShutdownTimeout.String(),
+		},
+		"gateway": map[string]interface{}{
+			"base_url": cfg.Gateway.BaseURL,
+		},
+		"auth": map[string]interface{}{
+			"port":     cfg.Auth.Port,
+			"base_url": cfg.Auth.BaseURL,
+		},
+		"jwt": map[string]interface{}{
+			"access_cookie_key":  cfg.JWT.AccessCookieKey,
+			"refresh_cookie_key": cfg.JWT.RefreshCookieKey,
+			"cookie_domain":      cfg.JWT.CookieDomain,
+			"access_ttl":         cfg.JWT.AccessTTL.String(),
+			"refresh_ttl":        cfg.JWT.RefreshTTL.String(),
+			// "access_secret":    "***", // скрываем
+			// "refresh_secret":   "***", // скрываем
+		},
+		"bcrypt": map[string]interface{}{
+			"cost": cfg.Bcrypt.Cost,
+		},
+		"routes": len(cfg.Routes),
+		"roles":  cfg.Roles,
+		"users":  len(cfg.Users),
+	}
+
+	logger.Info("configuration loaded", "config", configMap)
+
+	// Детальные маршруты - отдельно, чтобы не засорять
+	if len(cfg.Routes) > 0 {
+		for i, route := range cfg.Routes {
+			logger.Debug("route detail",
+				slog.Int("index", i),
+				slog.String("prefix", route.Prefix),
+				slog.String("target", route.Target),
+				slog.Bool("skip_auth", route.SkipAuth),
+				slog.Bool("redirect", route.Redirect),
+				slog.Bool("strip_first_prefix", route.StripFirstPrefix),
+				slog.Any("required_roles", route.RequiredRoles),
+			)
+		}
+	}
+}
+
+func slogLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelDebug
+	}
 }

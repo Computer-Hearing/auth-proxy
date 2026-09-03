@@ -7,7 +7,8 @@ import (
 
 // Config - главная структура конфига
 type Config struct {
-	ENV       string        `env:"ENV" envDefault:"development" validate:"oneof=development production"`
+	ENV       string        `yaml:"env" env:"ENV" envDefault:"development" validate:"oneof=development production"`
+	LogLevel  string        `yaml:"log_level" env:"LOG_LEVEL" envDefault:"debug" validate:"oneof=debug info"`
 	Server    ServerConfig  `yaml:"server" validate:"required"`
 	Gateway   GatewayConfig `yaml:"gateway" validate:"required"`
 	Auth      AuthConfig    `yaml:"auth" validate:"required"`

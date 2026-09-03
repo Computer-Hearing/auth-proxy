@@ -65,12 +65,14 @@ func (h *AuthProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// смотрим в блеклист
 	if h.cfg.IsIPBlacklisted(fingerprints.IP) {
+		h.logger.Debug("IP blacklisted", slog.String("ip", fingerprints.IP))
 		apierror.HandleAPIError(w, h.logger, apierror.ErrBlacklistedIP)
 		return
 	}
 	// смотрим есть ли этот маршрут в нашем конфиге
 	route := h.cfg.GetRouteByPrefix(proxyPath)
 	if route == nil {
+		h.logger.Debug("Route not found", slog.String("path", proxyPath), slog.String("ip", fingerprints.IP))
 		apierror.HandleAPIError(w, h.logger, apierror.ErrPathNotFound)
 		return
 	}
@@ -82,6 +84,7 @@ func (h *AuthProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Проксируем запрос на целевой сервис
+	h.logger.Debug("proxying", slog.String("path", proxyPath))
 	h.proxy.ServeHTTP(w, r)
 }
 
@@ -106,9 +109,11 @@ func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *con
 	if access == nil {
 		if refresh != nil {
 			h.redirectToAuth(w, r, "refresh")
+			h.logger.Debug("access cookie is empty", slog.String("redirect", "refresh"))
 			return false
 		}
 		h.redirectToAuth(w, r, "login")
+		h.logger.Debug("access and refresh cookies are empty", slog.String("redirect", "login"))
 		return false
 	}
 
@@ -125,12 +130,14 @@ func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *con
 	// expire) - признак подмены токена, обновлять такой не из чего и незачем.
 	if !errors.Is(err, jwt.ErrTokenExpired) {
 		h.redirectToAuth(w, r, "login")
+		h.logger.Debug("access cookie error", slog.String("redirect", "login"))
 		return false
 	}
 
 	// access истёк: если есть refresh - на /refresh, иначе - на логин
 	if refresh != nil {
 		h.redirectToAuth(w, r, "refresh")
+		h.logger.Debug("access cookie expired", slog.String("redirect", "refresh"))
 		return false
 	}
 	h.redirectToAuth(w, r, "login")

@@ -57,14 +57,18 @@ func (uc *UserStorage) LoadUsers(_ context.Context, users []domain.User) {
 // GetByUsername получает пользователя по имени
 func (uc *UserStorage) GetByUsername(_ context.Context, username string) (*domain.User, bool) {
 	if len(username) < pkg.MinUsernameLen || len(username) > pkg.MaxUsernameLen {
+		uc.logger.Warn("username too short", slog.String("username", username))
 		return nil, false
 	}
 
 	val, found := uc.cache.Get(fmt.Sprintf("user:username:%s", username))
 	if !found {
+		uc.logger.Warn("user not found by username", slog.String("username", username))
 		return nil, false
 	}
 	user, ok := val.(domain.User)
+
+	uc.logger.Debug("get user by username", slog.String("username", username))
 	return &user, ok
 }
 
@@ -72,9 +76,12 @@ func (uc *UserStorage) GetByUsername(_ context.Context, username string) (*domai
 func (uc *UserStorage) GetByEmail(_ context.Context, email string) (*domain.User, bool) {
 	val, found := uc.cache.Get(fmt.Sprintf("user:email:%s", email))
 	if !found {
+		uc.logger.Warn("user not found by email", slog.String("email", email))
 		return nil, false
 	}
 	user, ok := val.(domain.User)
+
+	uc.logger.Debug("get user by email", slog.String("email", email))
 	return &user, ok
 }
 
@@ -82,9 +89,12 @@ func (uc *UserStorage) GetByEmail(_ context.Context, email string) (*domain.User
 func (uc *UserStorage) GetByID(_ context.Context, id int64) (*domain.User, bool) {
 	val, found := uc.cache.Get(fmt.Sprintf("user:id:%d", id))
 	if !found {
+		uc.logger.Warn("user not found by id", slog.String("id", fmt.Sprint(id)))
 		return nil, false
 	}
 	user, ok := val.(domain.User)
+
+	uc.logger.Debug("get user by id", slog.String("id", fmt.Sprint(id)))
 	return &user, ok
 }
 
@@ -96,9 +106,11 @@ func (uc *UserStorage) Authenticate(ctx context.Context, username, password stri
 	}
 
 	if !user.CheckPassword(password) {
+		uc.logger.Debug("user check password failed", slog.String("username", username))
 		return nil, false
 	}
 
+	uc.logger.Debug("user authenticated", slog.String("username", username))
 	return user, true
 }
 
@@ -108,6 +120,8 @@ func (uc *UserStorage) AddOrUpdate(_ context.Context, user domain.User) {
 	uc.cache.Set(fmt.Sprintf("user:id:%d", user.ID), user, cache.NoExpiration)
 	uc.cache.Set(fmt.Sprintf("user:username:%s", user.Username), user, cache.NoExpiration)
 	uc.cache.Set(fmt.Sprintf("user:email:%s", user.Email), user, cache.NoExpiration)
+
+	uc.logger.Debug("user added to cache", slog.String("user id", fmt.Sprint(user.ID)))
 }
 
 // Delete удаляет пользователя
@@ -120,6 +134,8 @@ func (uc *UserStorage) Delete(ctx context.Context, id int64) {
 	uc.cache.Delete(fmt.Sprintf("user:id:%d", user.ID))
 	uc.cache.Delete(fmt.Sprintf("user:username:%s", user.Username))
 	uc.cache.Delete(fmt.Sprintf("user:email:%s", user.Email))
+
+	uc.logger.Debug("user deleted from cache", slog.String("user id", fmt.Sprint(user.ID)))
 }
 
 // GetAll возвращает всех пользователей
@@ -137,5 +153,6 @@ func (uc *UserStorage) GetAll(_ context.Context) []domain.User {
 		}
 	}
 
+	uc.logger.Debug("all users loaded from cache", slog.Int("users len", len(users)))
 	return users
 }

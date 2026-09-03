@@ -21,6 +21,7 @@ func TestRoutePattern_Match(t *testing.T) {
 		{"/a", "/a", true},
 		{"/a", "/b", false},
 		{"/**/*.js", "/assets/js/vendor/jquery.min.js", true},
+		{"/grafana/**", "/grafana/api/search?query=test", true},
 	}
 
 	for _, tc := range cases {
