@@ -104,10 +104,17 @@ func validateRoutes(cfg *Config) error {
 			}
 		}
 
+		// auth_method не указан - по умолчанию jwt (сохраняем старое поведение)
+		if route.AuthMethod == "" {
+			route.AuthMethod = AuthJWT
+			cfg.Routes[i].AuthMethod = AuthJWT
+		}
+
 		// Достраиваем роли "лесенкой": роли в cfg.Roles идут по возрастанию полномочий,
 		// поэтому если роут открыт роли X, он должен быть открыт и всем ролям выше X.
 		// Если у роута вообще нет ролей - открываем его для всех ролей.
-		if !route.SkipAuth {
+		// Для none-маршрутов роли не нужны (проверки нет вовсе).
+		if route.AuthMethod != AuthNone {
 			minIdx := 0
 			if len(route.RequiredRoles) > 0 {
 				minIdx = len(cfg.Roles) - 1

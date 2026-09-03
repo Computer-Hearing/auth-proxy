@@ -92,7 +92,7 @@ roles:
 routes:
   - prefix: "/api/users"
     target: "http://users_service:8081"
-    skip_auth: false
+    auth_method: jwt
 
 blacklist:
   - "10.0.0.0/8"
@@ -144,10 +144,16 @@ users:
 |------------------------|--------|----------|
 | `prefix`               | string | Путь, который перехватывает шлюз. Может содержать wildcard `*` / `**` (см. ниже). Обязателен, точные дубликаты строк не допускаются. |
 | `target`               | string | Куда проксировать/редиректить (валидный URL). Обязателен. |
-| `skip_auth`            | bool   | `true` — пропустить проверку токена и ролей. |
+| `auth_method`          | string | Способ аутентификации: `jwt` (по умолчанию), `basic`, `none`. |
 | `redirect`             | bool   | `true` — вместо проксирования вернуть 302 на `target` + путь запроса. |
 | `strip_first_prefix`   | bool   | `true` — убрать первый сегмент пути запроса: `/inference/api/v1` → `/api/v1`. |
 | `required_roles`       | []string | Минимальная роль для доступа. Автоматически расширяется на все роли «выше» из `roles`. |
+
+#### Способ аутентификации (`auth_method`)
+
+- `jwt` (по умолчанию, если поле не указано) — проверка access/refresh кук и роли из токена (см. «Жизненный цикл токенов»).
+- `basic` — проверка `login:password` из HTTP-заголовка `Authorization: Basic` по кешу пользователей. Пользователь берётся из `users`, пароль сверяется с BCrypt-хешем. При неверных/отсутствующих кредах — `401` + `WWW-Authenticate: Basic realm="AUTH-PROXY"`, чтобы клиент показал диалог входа. Роль проверяется через `required_roles`, как и для `jwt`. Подходит для CLI/клиентов, которые не умеют куки-JWT (например, MLflow).
+- `none` — маршрут открыт без какой-либо проверки (замена прежнего `skip_auth: true`).
 
 #### Wildcard в `prefix`
 
@@ -164,13 +170,13 @@ users:
 
 Литеральный `/api/orders` всегда победит `/api/*` для `/api/orders/5`.
 
-Пример — статика всегда пропускается через `skip_auth: true`:
+Пример — статика открыта без авторизации через `auth_method: none`:
 
 ```yaml
 routes:
   - prefix: "/static/**"
     target: "http://static_service:8080"
-    skip_auth: true
+    auth_method: none
     strip_first_prefix: true   # /static/app.js -> backend /app.js
 ```
 
@@ -186,11 +192,11 @@ routes:
 
 #### Как работает «лесенка» ролей (`required_roles`)
 
-Роли в `roles` идут по возрастанию полномочий. Если маршруту задан `required_roles` (и `skip_auth: false`):
+Роли в `roles` идут по возрастанию полномочий. Для маршрутов с `auth_method: jwt` и `auth_method: basic`:
 
 - доступ получают как указанная роль, так и все роли, стоящие в `roles` **правее** (выше по полномочиям);
 - если у маршрута ролей нет — открыт для **всех** ролей;
-- если `skip_auth: true` — `required_roles` игнорируются.
+- если `auth_method: none` — `required_roles` игнорируются (проверки нет вовсе).
 
 Пример:
 
@@ -200,16 +206,16 @@ roles: ["user", "admin", "superadmin"]
 routes:
   - prefix: "/api/users/delete"
     target: "http://users_service:8081"
-    skip_auth: false
+    auth_method: jwt
     required_roles: ["admin"]   # доступно admin и superadmin
 
   - prefix: "/api/reports"
     target: "http://reports_service:8082"
-    skip_auth: false             # ролей нет -> доступно всем ролям
+    auth_method: jwt             # ролей нет -> доступно всем ролям
 
   - prefix: "/"
     target: "http://login:8084/login"
-    skip_auth: true
+    auth_method: none
     redirect: true
     strip_first_prefix: true
 ```

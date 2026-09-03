@@ -61,8 +61,8 @@ func TestRoutesProxy_ServeHTTP_ProxyLongestPrefix(t *testing.T) {
 	usersDeleteSrv := startBackend(t, usersDelete.ServeHTTPName("users-delete"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/api/users", Target: usersSrv.URL, SkipAuth: true},
-		{Prefix: "/api/users/delete", Target: usersDeleteSrv.URL, SkipAuth: true},
+		{Prefix: "/api/users", Target: usersSrv.URL, AuthMethod: config.AuthNone},
+		{Prefix: "/api/users/delete", Target: usersDeleteSrv.URL, AuthMethod: config.AuthNone},
 	})
 
 	if rec := serveRoutes(t, rp, "/api/users/list"); rec.Code != http.StatusOK {
@@ -85,7 +85,7 @@ func TestRoutesProxy_ServeHTTP_StripFirstPrefix(t *testing.T) {
 	backend := startBackend(t, recorder.ServeHTTPName("inference"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/inference", Target: backend.URL, SkipAuth: true, StripFirstPrefix: true},
+		{Prefix: "/inference", Target: backend.URL, AuthMethod: config.AuthNone, StripFirstPrefix: true},
 	})
 
 	cases := map[string]string{
@@ -110,7 +110,7 @@ func TestRoutesProxy_ServeHTTP_ProxyKeepsFullPathByDefault(t *testing.T) {
 	backend := startBackend(t, recorder.ServeHTTPName("no-strip"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/api/v1", Target: backend.URL, SkipAuth: true},
+		{Prefix: "/api/v1", Target: backend.URL, AuthMethod: config.AuthNone},
 	})
 
 	if rec := serveRoutes(t, rp, "/api/v1/users"); rec.Code != http.StatusOK {
@@ -123,8 +123,8 @@ func TestRoutesProxy_ServeHTTP_ProxyKeepsFullPathByDefault(t *testing.T) {
 
 func TestRoutesProxy_ServeHTTP_Redirect(t *testing.T) {
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/redir", Target: "http://login:8084/login", SkipAuth: true, Redirect: true},
-		{Prefix: "/redir-strip", Target: "http://login:8084/login", SkipAuth: true, Redirect: true, StripFirstPrefix: true},
+		{Prefix: "/redir", Target: "http://login:8084/login", AuthMethod: config.AuthNone, Redirect: true},
+		{Prefix: "/redir-strip", Target: "http://login:8084/login", AuthMethod: config.AuthNone, Redirect: true, StripFirstPrefix: true},
 	})
 
 	cases := []struct {
@@ -150,7 +150,7 @@ func TestRoutesProxy_ServeHTTP_Redirect(t *testing.T) {
 
 func TestRoutesProxy_ServeHTTP_PathNotFound(t *testing.T) {
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/api/users", Target: "http://users:8081", SkipAuth: true},
+		{Prefix: "/api/users", Target: "http://users:8081", AuthMethod: config.AuthNone},
 	})
 
 	if rec := serveRoutes(t, rp, "/nope"); rec.Code != http.StatusNotFound {
@@ -163,8 +163,8 @@ func TestRoutesProxy_Proxy(t *testing.T) {
 	usersDelete := startBackend(t, recorder.ServeHTTPName("users-delete"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/api/users", Target: "http://users:8081", SkipAuth: true},
-		{Prefix: "/api/users/delete", Target: usersDelete.URL, SkipAuth: true},
+		{Prefix: "/api/users", Target: "http://users:8081", AuthMethod: config.AuthNone},
+		{Prefix: "/api/users/delete", Target: usersDelete.URL, AuthMethod: config.AuthNone},
 	})
 
 	if proxy := rp.Proxy("/api/users/delete/5"); proxy == nil {
@@ -199,7 +199,7 @@ func TestNewRoutesProxy_Errors(t *testing.T) {
 	}
 
 	if _, err := NewRoutesProxy(&config.Config{
-		Routes: []config.RouteConfig{{Prefix: "api/*", Target: "http://x", SkipAuth: true}},
+		Routes: []config.RouteConfig{{Prefix: "api/*", Target: "http://x", AuthMethod: config.AuthNone}},
 	}); err == nil {
 		t.Error("expected error for prefix without leading slash")
 	}
@@ -213,8 +213,8 @@ func TestRoutesProxy_ServeHTTP_WildcardLiteralBeats(t *testing.T) {
 	wildSrv := startBackend(t, wild.ServeHTTPName("wild"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/api/*", Target: wildSrv.URL, SkipAuth: true},
-		{Prefix: "/api/orders", Target: ordersSrv.URL, SkipAuth: true},
+		{Prefix: "/api/*", Target: wildSrv.URL, AuthMethod: config.AuthNone},
+		{Prefix: "/api/orders", Target: ordersSrv.URL, AuthMethod: config.AuthNone},
 	})
 
 	if rec := serveRoutes(t, rp, "/api/orders/5"); rec.Code != http.StatusOK {
@@ -237,7 +237,7 @@ func TestRoutesProxy_ServeHTTP_WildcardMidPath(t *testing.T) {
 	backend := startBackend(t, recorder.ServeHTTPName("v1"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/api/*/v1", Target: backend.URL, SkipAuth: true},
+		{Prefix: "/api/*/v1", Target: backend.URL, AuthMethod: config.AuthNone},
 	})
 
 	if rec := serveRoutes(t, rp, "/api/x/v1/anything"); rec.Code != http.StatusOK {
@@ -257,7 +257,7 @@ func TestRoutesProxy_ServeHTTP_WildcardStaticWithStrip(t *testing.T) {
 	backend := startBackend(t, recorder.ServeHTTPName("static"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/static/**", Target: backend.URL, SkipAuth: true, StripFirstPrefix: true},
+		{Prefix: "/static/**", Target: backend.URL, AuthMethod: config.AuthNone, StripFirstPrefix: true},
 	})
 
 	cases := map[string]string{
@@ -290,7 +290,7 @@ func TestRoutesProxy_ServeHTTP_WildcardFileRoot(t *testing.T) {
 	backend := startBackend(t, recorder.ServeHTTPName("assets"))
 
 	rp := buildProxy(t, []config.RouteConfig{
-		{Prefix: "/*.js", Target: backend.URL, SkipAuth: true},
+		{Prefix: "/*.js", Target: backend.URL, AuthMethod: config.AuthNone},
 	})
 
 	if rec := serveRoutes(t, rp, "/app.js"); rec.Code != http.StatusOK {

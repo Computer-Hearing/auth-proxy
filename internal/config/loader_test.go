@@ -15,8 +15,8 @@ func TestValidateRoutes_RoleLadder(t *testing.T) {
 			{Prefix: "/a", Target: "http://x", RequiredRoles: []string{"admin"}},
 			{Prefix: "/b", Target: "http://x", RequiredRoles: []string{"superadmin"}},
 			{Prefix: "/c", Target: "http://x"},
-			{Prefix: "/d", Target: "http://x", SkipAuth: true},
-			{Prefix: "/e", Target: "http://x", SkipAuth: true, RequiredRoles: []string{"admin"}},
+			{Prefix: "/d", Target: "http://x", AuthMethod: AuthNone},
+			{Prefix: "/e", Target: "http://x", AuthMethod: AuthNone, RequiredRoles: []string{"admin"}},
 		},
 	}
 
@@ -43,6 +43,15 @@ func TestValidateRoutes_RoleLadder(t *testing.T) {
 		if !slices.Equal(route.RequiredRoles, tc.want) {
 			t.Errorf("route %s: got %v, want %v", tc.prefix, route.RequiredRoles, tc.want)
 		}
+	}
+
+	// auth_method не указан -> по умолчанию jwt
+	if got := cfg.GetRouteByPrefix("/c").AuthMethod; got != AuthJWT {
+		t.Errorf("route /c: default auth_method = %q, want %q", got, AuthJWT)
+	}
+	// none-маршрут остаётся none
+	if got := cfg.GetRouteByPrefix("/d").AuthMethod; got != AuthNone {
+		t.Errorf("route /d: auth_method = %q, want %q", got, AuthNone)
 	}
 }
 
@@ -74,7 +83,7 @@ roles:
 routes:
   - prefix: "/api"
     target: "http://backend:8080"
-    skip_auth: true
+    auth_method: none
 
 blacklist:
   - "10.0.0.0/8"
@@ -119,7 +128,7 @@ auth:
 routes:
   - prefix: "/api"
     target: "http://backend:8080"
-    skip_auth: true
+    auth_method: none
 `
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
@@ -152,7 +161,7 @@ func TestLoad_MissingAuthBaseURL(t *testing.T) {
 routes:
   - prefix: "/api"
     target: "http://backend:8080"
-    skip_auth: true
+    auth_method: none
 `
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
@@ -183,7 +192,7 @@ auth:
 routes:
   - prefix: "/api"
     target: "http://backend:8080"
-    skip_auth: true
+    auth_method: none
 `
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0o600); err != nil {
@@ -221,7 +230,7 @@ func TestValidateRoutes_UserRoleNotInList(t *testing.T) {
 	cfg := &Config{
 		Roles: []string{"user", "admin", "superadmin"},
 		Routes: []RouteConfig{
-			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+			{Prefix: "/a", Target: "http://x", AuthMethod: AuthNone},
 		},
 		Users: []User{
 			{ID: 1, Login: "alice", Password: "secret", Role: "ghost"},
@@ -237,7 +246,7 @@ func TestValidateRoutes_UserPasswordHashed(t *testing.T) {
 	cfg := &Config{
 		Roles: []string{"user", "admin", "superadmin"},
 		Routes: []RouteConfig{
-			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+			{Prefix: "/a", Target: "http://x", AuthMethod: AuthNone},
 		},
 		Bcrypt: BcryptConfig{Cost: 4},
 		Users: []User{
@@ -265,7 +274,7 @@ func TestValidateRoutes_AutoSuperAdmin(t *testing.T) {
 	cfg := &Config{
 		Roles: []string{"user", "admin", "superadmin"},
 		Routes: []RouteConfig{
-			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+			{Prefix: "/a", Target: "http://x", AuthMethod: AuthNone},
 		},
 		Bcrypt: BcryptConfig{Cost: 4},
 		Users: []User{
@@ -300,7 +309,7 @@ func TestValidateRoutes_NoUsers_AutoSuperAdmin(t *testing.T) {
 	cfg := &Config{
 		Roles: []string{"user", "admin", "superadmin"},
 		Routes: []RouteConfig{
-			{Prefix: "/a", Target: "http://x", SkipAuth: true},
+			{Prefix: "/a", Target: "http://x", AuthMethod: AuthNone},
 		},
 		Bcrypt: BcryptConfig{Cost: 4},
 	}
@@ -358,7 +367,7 @@ func TestValidateRoutes_InvalidWildcardPrefix(t *testing.T) {
 	cfg := &Config{
 		Roles: []string{"user", "admin", "superadmin"},
 		Routes: []RouteConfig{
-			{Prefix: "api/*", Target: "http://x", SkipAuth: true},
+			{Prefix: "api/*", Target: "http://x", AuthMethod: AuthNone},
 		},
 	}
 

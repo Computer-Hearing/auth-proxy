@@ -61,13 +61,26 @@ type BcryptConfig struct {
 
 // RouteConfig - маршрут для Gateway
 type RouteConfig struct {
-	Prefix           string   `yaml:"prefix" validate:"required"`
-	Target           string   `yaml:"target" validate:"required,url"`
-	SkipAuth         bool     `yaml:"skip_auth"`
-	Redirect         bool     `yaml:"redirect"`
-	StripFirstPrefix bool     `yaml:"strip_first_prefix"`
-	RequiredRoles    []string `yaml:"required_roles" validate:"dive,required"`
+	Prefix           string     `yaml:"prefix" validate:"required"`
+	Target           string     `yaml:"target" validate:"required,url"`
+	AuthMethod       AuthMethod `yaml:"auth_method" validate:"omitempty,oneof=jwt basic none"`
+	Redirect         bool       `yaml:"redirect"`
+	StripFirstPrefix bool       `yaml:"strip_first_prefix"`
+	RequiredRoles    []string   `yaml:"required_roles" validate:"dive,required"`
 }
+
+// AuthMethod - способ аутентификации маршрута.
+type AuthMethod string
+
+const (
+	// AuthNone - маршрут открыт, без какой-либо проверки.
+	AuthNone AuthMethod = "none"
+	// AuthBasic - проверка login/password из Basic-заголовка по кешу пользователей.
+	// Роль проверяется через RequiredRoles, как и для jwt.
+	AuthBasic AuthMethod = "basic"
+	// AuthJWT - проверка access/refresh кук (JWT). Используется по умолчанию.
+	AuthJWT AuthMethod = "jwt"
+)
 
 type User struct {
 	ID       int64  `yaml:"id" json:"id" validate:"required,gte=1"`

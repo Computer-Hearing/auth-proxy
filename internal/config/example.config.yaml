@@ -15,16 +15,28 @@ roles:
 routes:
   - prefix: "/**/*.js"
     target: "http://static_service:8084"
-    skip_auth: true
+    auth_method: none
     strip_first_prefix: true
 
   # редирект-маршрут: вместо проксирования отвечаем 302 на target + путь запроса
   # с strip_first_prefix: true первый сегмент пути вырезается: /inference/api/v1 -> login_service/login/api/v1
   - prefix: "/inference"
     target: "http://login_service:8084/login"
-    skip_auth: true
+    auth_method: none
     redirect: true
     strip_first_prefix: true
+
+  # основной API: JWT-авторизация (по умолчанию), роль admin
+  - prefix: "/api"
+    target: "http://api_service:8085"
+    auth_method: jwt
+    required_roles: ["admin"]
+
+  # MLflow включён через Basic Auth (обычный CLI/клиент не умеет куки-JWT)
+  - prefix: "/mlflow"
+    target: "http://mlflow:5000"
+    auth_method: basic
+    required_roles: ["user"]
 
 blacklist:
   - "10.0.0.0/8"

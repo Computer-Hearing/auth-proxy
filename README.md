@@ -1,10 +1,15 @@
 # auth-proxy
 
-Прокси-шлюз с авторизацией по JWT (куки) и проверкой ролей на маршрутах.
+Прокси-шлюз с авторизацией и проверкой ролей на маршрутах.
 Один бинарник поднимает два HTTP-слушателя:
 
-- **гейт** (`server.port`, по умолчанию 5000) — проксирует трафик после проверки access/refresh-кук и роли;
+- **gateway-сервис** (`server.port`, по умолчанию 5000) — проксирует трафик после проверки доступа;
 - **auth-сервис** (`auth.port`, по умолчанию 6000) — `/login`, `/refresh`, `/logout`, `/user/me`.
+
+Для каждого маршрута (`routes[]`) задаётся `auth_method`: `jwt` (куки, по умолчанию),
+`basic` (Login/Password из `Authorization: Basic` для CLI, например MLflow) или `none`
+(маршрут открыт). Роль для `jwt`/`basic` проверяется через `required_roles`.
+Подробности полей — в `internal/config/README.md`.
 
 ## Быстрый старт локально
 
@@ -18,7 +23,7 @@ go run ./cmd/proxy
 Конфиг = `YAML_CONFIG_PATH` (по умолчанию `./config.yaml`) + переменные окружения + дефолты.
 **Приоритет: YAML перекрывает ENV.** Пароли пользователей в `config.yaml` указываются
 в открытом виде и хешируются при старте.
-
+По сути можно пользоваться только yaml-конфигурацией.
 ## Docker
 
 ### Сборка и публикация образа
@@ -34,7 +39,7 @@ go run ./cmd/proxy
 docker compose up -d --build
 ```
 
-Конфиг монтируется из `./config.yaml` в `/etc/auth-proxy/config.yaml` (read-only), порты гейта и
+Конфиг монтируется из `./config.yaml` в `/etc/auth-proxy/config.yaml` (read-only), порты gateway-сервиса и
 auth-сервиса публикуются как 5000/6000.
 
 ### Docker Swarm
@@ -44,15 +49,9 @@ docker stack deploy -c docker-stack.yml auth-proxy
 ```
 
 Файл конфига (`./config.yaml`) раздаётся на все ноды как **docker config** и монтируется
-в `/etc/auth-proxy/config.yaml`. После правки конфига:
+в `/etc/auth-proxy/config.yaml`.
 
-```bash
-docker config rm auth_proxy_config
-docker stack deploy -c docker-stack.yml auth-proxy
-```
-
-### Что обязательно настроить в проде
-
+### Что обязательно настроить в реальной среде
 | Настройка | Почему |
 |---|---|
 | `ENV=production` | включает `Secure` у кук — браузер сохранит их только по HTTPS |

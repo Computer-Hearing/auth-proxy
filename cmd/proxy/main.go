@@ -55,6 +55,7 @@ func main() {
 		Logger:     logger.With(slog.String("component", "gateway-handler")),
 		Config:     cfg,
 		JWT:        jwtModule,
+		Users:      *userStorage,
 		AppVersion: version,
 	})
 	if err != nil {
@@ -198,7 +199,7 @@ func printConfig(logger *slog.Logger, cfg *config.Config) {
 				slog.Int("index", i),
 				slog.String("prefix", route.Prefix),
 				slog.String("target", route.Target),
-				slog.Bool("skip_auth", route.SkipAuth),
+				slog.String("auth_method", string(route.AuthMethod)),
 				slog.Bool("redirect", route.Redirect),
 				slog.Bool("strip_first_prefix", route.StripFirstPrefix),
 				slog.Any("required_roles", route.RequiredRoles),

@@ -17,7 +17,6 @@ type routeEntry struct {
 	proxy      *httputil.ReverseProxy
 	redirect   string
 	stripFirst bool
-	skipAuth   bool
 }
 
 // routePatternEntry - скомпилированный паттерн маршрута + его обработчик
@@ -46,7 +45,6 @@ func NewRoutesProxy(cfg *config.Config) (*RoutesProxy, error) {
 
 		entry := routeEntry{
 			stripFirst: route.StripFirstPrefix,
-			skipAuth:   route.SkipAuth,
 		}
 
 		if route.Redirect {
@@ -96,15 +94,6 @@ func (rp *RoutesProxy) Proxy(path string) *httputil.ReverseProxy {
 		return nil
 	}
 	return entry.proxy
-}
-
-// SkipAuth сообщает, требует ли маршрут для пути проверки токена и ролей
-func (rp *RoutesProxy) SkipAuth(path string) bool {
-	entry, ok := rp.entry(path)
-	if !ok {
-		return false
-	}
-	return entry.skipAuth
 }
 
 // ServeHTTP проксирует запрос или редиректит на целевой сервис

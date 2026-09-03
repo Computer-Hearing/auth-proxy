@@ -5,6 +5,7 @@ import (
 	"auth-proxy/internal/middleware"
 	"auth-proxy/internal/modules/routes"
 	"auth-proxy/internal/modules/tokens"
+	"auth-proxy/internal/modules/users"
 	"auth-proxy/pkg"
 	"auth-proxy/pkg/apierror"
 	"errors"
@@ -21,6 +22,7 @@ type Options struct {
 	Logger *slog.Logger
 	Config *config.Config
 	JWT    *tokens.JWTModule
+	Users  users.UserStorage
 
 	AppVersion string
 }
@@ -29,6 +31,7 @@ var (
 	ErrOptionsIsNil = errors.New("options is nil")
 	ErrConfigIsNil  = errors.New("config is nil")
 	ErrJWTIsNil     = errors.New("jwt module is nil")
+	ErrUsersIsNil   = errors.New("users storage is nil")
 )
 
 type AuthProxy struct {
@@ -36,6 +39,7 @@ type AuthProxy struct {
 	logger *slog.Logger
 	proxy  *routes.RoutesProxy
 	jwt    *tokens.JWTModule
+	users  users.UserStorage
 
 	appVersion string
 }
@@ -53,12 +57,15 @@ func NewHandlers(opts *Options) (*AuthProxy, error) {
 	if opts.JWT == nil {
 		return nil, ErrJWTIsNil
 	}
+	if opts.Users == (users.UserStorage{}) {
+		return nil, ErrUsersIsNil
+	}
 	cfg, logger := opts.Config, opts.Logger
 	proxy, err := routes.NewRoutesProxy(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("new routes proxy: %w", err)
 	}
-	return &AuthProxy{cfg: cfg, logger: logger, proxy: proxy, jwt: opts.JWT, appVersion: opts.AppVersion}, nil
+	return &AuthProxy{cfg: cfg, logger: logger, proxy: proxy, jwt: opts.JWT, users: opts.Users, appVersion: opts.AppVersion}, nil
 }
 
 func (h *AuthProxy) Handler() http.Handler {
@@ -96,15 +103,66 @@ func (h *AuthProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// маршрут требует аутентификации и авторизации;
-	// вернули false - ответ (редирект/403) уже записан в w
-	if !route.SkipAuth && !h.authorize(w, r, route) {
-		return
+	// маршрут требует аутентификации и авторизации по своему методу;
+	// вернули false - ответ (редирект/401/403) уже записан в w
+	switch route.AuthMethod {
+	case config.AuthNone:
+		// маршрут открыт, проверок нет
+	case config.AuthBasic:
+		// basic авторизация
+		if !h.authorizeBasic(w, r, route) {
+			return
+		}
+	default:
+		// по умолчанию - jwt
+		if !h.authorize(w, r, route) {
+			return
+		}
 	}
 
 	// Проксируем запрос на целевой сервис
 	h.logger.Debug("proxying", slog.String("path", proxyPath))
 	h.proxy.ServeHTTP(w, r)
+}
+
+// authorizeBasic проверяет login/password из Basic-заголовка по кешу пользователей.
+// Пароль должен совпадать с учёткой из конфига, а роль пользователя - входить
+// в RequiredRoles маршрута (как и для jwt-маршрутов).
+//
+// Возвращает true, если можно проксировать запрос дальше.
+// При неверных/отсутствующих кредах шлём 401 + WWW-Authenticate: Basic,
+// чтобы клиент/браузер показал диалог входа.
+func (h *AuthProxy) authorizeBasic(w http.ResponseWriter, r *http.Request, route *config.RouteConfig) bool {
+	username, password, ok := r.BasicAuth()
+	if !ok {
+		h.requireBasicAuth(w, r, username)
+		return false
+	}
+
+	user, authOK := h.users.Authenticate(r.Context(), username, password)
+	if !authOK {
+		h.logger.Debug("basic auth failed", slog.String("username", username))
+		h.requireBasicAuth(w, r, username)
+		return false
+	}
+
+	// роль пользователя должна подходить под minimum ролей маршрута
+	if !slices.Contains(route.RequiredRoles, user.Role) {
+		h.logger.Debug("basic auth role denied", slog.String("username", username), slog.String("role", user.Role))
+		apierror.HandleAPIError(w, h.logger, apierror.ErrForbidden)
+		return false
+	}
+
+	h.logger.Debug("basic auth ok", slog.String("username", username))
+	return true
+}
+
+// requireBasicAuth отвечает 401 + WWW-Authenticate: Basic realm="AUTH-PROXY".
+// Заголовок WWW-Authenticate обязателен, иначе браузер не покажет диалог логина.
+func (h *AuthProxy) requireBasicAuth(w http.ResponseWriter, r *http.Request, username string) {
+	h.logger.Debug("basic auth required", slog.String("path", r.URL.Path), slog.String("username", username))
+	w.Header().Set("WWW-Authenticate", `Basic realm="AUTH-PROXY"`)
+	apierror.HandleAPIError(w, h.logger, apierror.ErrUnauthorized)
 }
 
 // authorize проверяет access/refresh куки и роль пользователя.
