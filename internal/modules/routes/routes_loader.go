@@ -4,6 +4,7 @@ import (
 	"auth-proxy/internal/config"
 	"auth-proxy/pkg"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -30,8 +31,9 @@ type RoutesProxy struct {
 	routes []routePatternEntry
 }
 
-// NewRoutesProxy строит список маршрутов с паттернами из конфига
-func NewRoutesProxy(cfg *config.Config) (*RoutesProxy, error) {
+// NewRoutesProxy строит список маршрутов с паттернами из конфига.
+// logger передается прокси для логирования транспортных ошибок (502).
+func NewRoutesProxy(cfg *config.Config, logger *slog.Logger) (*RoutesProxy, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("routes config is nil")
 	}
@@ -50,7 +52,7 @@ func NewRoutesProxy(cfg *config.Config) (*RoutesProxy, error) {
 		if route.Redirect {
 			entry.redirect = route.Target
 		} else {
-			proxy, err := pkg.NewReverseProxy(route.Target, route.StripFirstPrefix)
+			proxy, err := pkg.NewReverseProxy(route.Target, route.StripFirstPrefix, logger)
 			if err != nil {
 				return nil, fmt.Errorf("create reverse proxy for route %s: %w", route.Prefix, err)
 			}

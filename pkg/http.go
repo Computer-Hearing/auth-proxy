@@ -27,8 +27,13 @@ type jsonError struct {
 
 // NewReverseProxy создает реверс-прокси к целевому сервису.
 // stripFirstPrefix - если true, из пути запроса убирается первый сегмент
-// (например, /inference/api/v1 -> /api/v1).
-func NewReverseProxy(targetURL string, stripFirstPrefix bool) (*httputil.ReverseProxy, error) {
+// (например, /inference/api/v1 -> /api/v1). logger - куда писать
+// транспортные ошибки прокси; если nil, используется slog.Default().
+func NewReverseProxy(targetURL string, stripFirstPrefix bool, logger *slog.Logger) (*httputil.ReverseProxy, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	target, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, err
@@ -42,6 +47,20 @@ func NewReverseProxy(targetURL string, stripFirstPrefix bool) (*httputil.Reverse
 				pr.Out.URL.Path = StripFirstPath(pr.In.URL.Path)
 				pr.Out.URL.RawPath = ""
 			}
+		},
+		// ErrorHandler логирует причину транспортной ошибки (недоступный таргет,
+		// EOF, таймаут и т.п.) и отвечает 502. Без него ReverseProxy глушит ошибку
+		// дефолтным http.Error, а причина теряется (классический случай - молчаливый
+		// 502 на бэкенд, который не поднялся).
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			logger.Error("reverse proxy: target service unreachable",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("target", targetURL),
+				slog.String("request_id", r.Header.Get("X-Request-ID")),
+				slog.String("error", err.Error()),
+			)
+			SendJSON(logger, w, jsonError{Error: "target service unreachable"}, http.StatusBadGateway)
 		},
 	}
 	return proxy, nil

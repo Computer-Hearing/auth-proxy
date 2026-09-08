@@ -7,8 +7,9 @@
 - **auth-сервис** (`auth.port`, по умолчанию 6000) — `/login`, `/refresh`, `/logout`, `/user/me`.
 
 Для каждого маршрута (`routes[]`) задаётся `auth_method`: `jwt` (куки, по умолчанию),
-`basic` (Login/Password из `Authorization: Basic` для CLI, например MLflow) или `none`
-(маршрут открыт). Роль для `jwt`/`basic` проверяется через `required_roles`.
+`basic` (Login/Password из `Authorization: Basic` для CLI, например MLflow), `jwt2basic`
+(принимаем JWT-куки, бэкенду подставляем `Authorization: Basic`) или `none`
+(маршрут открыт). Роль для `jwt`/`jwt2basic`/`basic` проверяется через `required_roles`.
 Подробности полей — в `internal/config/README.md`.
 
 ## Быстрый старт локально

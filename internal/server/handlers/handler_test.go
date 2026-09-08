@@ -17,12 +17,13 @@ import (
 
 const testSecret = "supersecret-access-key-32-chars-min"
 
-// backendStub - заглушка бекенда, в ответе пишет свой адрес: backend:/api/...
+// backendStub - заглушка бекенда, в ответе пишет свой адрес и полученный
+// заголовок Authorization: backend:/api/...|auth:Basic xxx
 func backendStub(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("backend:" + r.URL.Path))
+		_, _ = w.Write([]byte("backend:" + r.URL.Path + "|auth:" + r.Header.Get("Authorization")))
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -38,14 +39,15 @@ func testStorage(t *testing.T) users.UserStorage {
 	}
 	storage := users.NewUsersCache(&users.UserStorageConfig{Logger: nil})
 	storage.LoadUsers(context.Background(), []domain.User{
-		{ID: 1, Username: "alice", Email: "alice@t.ru", FirstName: "Alice", HashedPassword: hash, Role: "admin"},
-		{ID: 2, Username: "bobby", Email: "bobby@t.ru", FirstName: "Bobby", HashedPassword: hash, Role: "user"},
+		{ID: 1, Username: "alice", Email: "alice@t.ru", FirstName: "Alice", HashedPassword: hash, Role: "admin", BasicAuth: pkg.BasicAuthHeader("alice", "secret")},
+		{ID: 2, Username: "bobby", Email: "bobby@t.ru", FirstName: "Bobby", HashedPassword: hash, Role: "user", BasicAuth: pkg.BasicAuthHeader("bobby", "secret")},
 	})
 	return *storage
 }
 
-// newTestGateway собирает гейт с бекендом и двумя маршрутами:
-// /api (jwt, admin), /public (none), /basic (basic, admin), /basic-user (basic, user)
+// newTestGateway собирает гейт с бекендом и маршрутами:
+// /api (jwt, admin), /public (none), /basic (basic, admin), /basic-user
+// (basic, user), /jwt2basic (jwt2basic, admin).
 func newTestGateway(t *testing.T) (*AuthProxy, *tokens.JWTModule) {
 	t.Helper()
 	backend := backendStub(t)
@@ -67,6 +69,7 @@ func newTestGateway(t *testing.T) (*AuthProxy, *tokens.JWTModule) {
 			{Prefix: "/public", Target: backend.URL, AuthMethod: config.AuthNone},
 			{Prefix: "/basic", Target: backend.URL, AuthMethod: config.AuthBasic, RequiredRoles: []string{"admin"}},
 			{Prefix: "/basic-user", Target: backend.URL, AuthMethod: config.AuthBasic, RequiredRoles: []string{"user"}},
+			{Prefix: "/jwt2basic", Target: backend.URL, AuthMethod: config.AuthJWTBasic, RequiredRoles: []string{"admin"}},
 		},
 	}
 
@@ -154,7 +157,7 @@ func TestAuthorize_ValidTokenAndRole_Proxies(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected proxied 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if rec.Body.String() != "backend:/api/orders" {
+	if rec.Body.String() != "backend:/api/orders|auth:" {
 		t.Errorf("backend body: got %q, want forwarded path", rec.Body.String())
 	}
 }
@@ -246,7 +249,7 @@ func TestPublicRoute_NoAuth(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 on public route, got %d", rec.Code)
 	}
-	if rec.Body.String() != "backend:/public" {
+	if rec.Body.String() != "backend:/public|auth:" {
 		t.Errorf("backend body: got %q", rec.Body.String())
 	}
 }
@@ -294,7 +297,7 @@ func TestAuthorizeBasic_ValidCredsAndRole_Proxies(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if rec.Body.String() != "backend:/basic/data" {
+	if rec.Body.String() != "backend:/basic/data|auth:"+pkg.BasicAuthHeader("alice", "secret") {
 		t.Errorf("backend body: got %q", rec.Body.String())
 	}
 }
@@ -325,7 +328,55 @@ func TestAuthorizeBasic_UserRoleRoute_Proxies(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if rec.Body.String() != "backend:/basic-user/x" {
+	if rec.Body.String() != "backend:/basic-user/x|auth:"+pkg.BasicAuthHeader("bobby", "secret") {
 		t.Errorf("backend body: got %q", rec.Body.String())
+	}
+}
+
+func TestJWT2Basic_ValidToken_ForwardsBasicHeader(t *testing.T) {
+	h, jwt := newTestGateway(t)
+
+	access, _, _ := jwt.GenerateBothTokens(1, "alice", "alice@t.ru", "admin")
+	req := httptest.NewRequest(http.MethodGet, "/jwt2basic/mlflow/", nil)
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: access})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	want := "backend:/jwt2basic/mlflow/|auth:" + pkg.BasicAuthHeader("alice", "secret")
+	if rec.Body.String() != want {
+		t.Errorf("backend body: got %q, want %q", rec.Body.String(), want)
+	}
+}
+
+func TestJWT2Basic_NoCookies_RedirectsToLogin(t *testing.T) {
+	h, _ := newTestGateway(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/jwt2basic/mlflow/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	host, path, _ := nextFromLocation(t, rec)
+	if host != "auth.local" || path != "/login" {
+		t.Errorf("got %s%s, want http://auth.local/login", host, path)
+	}
+}
+
+func TestJWT2Basic_LowRole_Forbidden(t *testing.T) {
+	h, jwt := newTestGateway(t)
+
+	// bobby - user, а маршрут требует admin -> 403 без проксирования
+	access, _, _ := jwt.GenerateBothTokens(2, "bobby", "bobby@t.ru", "user")
+	req := httptest.NewRequest(http.MethodGet, "/jwt2basic/mlflow/", nil)
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: access})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for low role, got %d", rec.Code)
 	}
 }

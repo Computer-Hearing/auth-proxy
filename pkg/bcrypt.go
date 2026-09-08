@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"encoding/base64"
 	"fmt"
 
 	"golang.org/x/crypto/bcrypt"
@@ -24,4 +25,9 @@ func HashPassword(password string, cost int) (string, error) {
 func CheckPassword(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
+}
+
+// BasicAuthHeader - формирует значение заголовка Authorization: Basic base64(login:password)
+func BasicAuthHeader(login, password string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(login+":"+password))
 }

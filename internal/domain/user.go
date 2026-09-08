@@ -16,6 +16,9 @@ type User struct {
 	HashedPassword string `json:"-"`
 	Role           string `json:"role"`
 	LastActivity   string `json:"last_activity"`
+	// BasicAuth - готовый заголовок Authorization: Basic (base64(login:password))
+	// для jwt2basic-маршрутов. Заполняется на этапе загрузки конфига, в JSON не попадает.
+	BasicAuth string `json:"-"`
 }
 
 func (u *User) Validate() error {

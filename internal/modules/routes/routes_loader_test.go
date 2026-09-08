@@ -38,7 +38,7 @@ func startBackend(t *testing.T, h http.Handler) *httptest.Server {
 
 func buildProxy(t *testing.T, routes []config.RouteConfig) *RoutesProxy {
 	t.Helper()
-	rp, err := NewRoutesProxy(&config.Config{Routes: routes})
+	rp, err := NewRoutesProxy(&config.Config{Routes: routes}, nil)
 	if err != nil {
 		t.Fatalf("NewRoutesProxy: %v", err)
 	}
@@ -188,19 +188,19 @@ func TestRoutesProxy_Proxy(t *testing.T) {
 }
 
 func TestNewRoutesProxy_Errors(t *testing.T) {
-	if _, err := NewRoutesProxy(nil); err == nil {
+	if _, err := NewRoutesProxy(nil, nil); err == nil {
 		t.Error("expected error for nil config")
 	}
 
 	if _, err := NewRoutesProxy(&config.Config{
 		Routes: []config.RouteConfig{{Prefix: "/bad", Target: "http://[::1"}},
-	}); err == nil {
+	}, nil); err == nil {
 		t.Error("expected error for invalid target url")
 	}
 
 	if _, err := NewRoutesProxy(&config.Config{
 		Routes: []config.RouteConfig{{Prefix: "api/*", Target: "http://x", AuthMethod: config.AuthNone}},
-	}); err == nil {
+	}, nil); err == nil {
 		t.Error("expected error for prefix without leading slash")
 	}
 }

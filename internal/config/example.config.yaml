@@ -32,10 +32,13 @@ routes:
     auth_method: jwt
     required_roles: ["admin"]
 
-  # MLflow включён через Basic Auth (обычный CLI/клиент не умеет куки-JWT)
+  # MLflow через jwt2basic: браузер с JWT-куками логинится через гейт, а бэкенду
+  # уходит Authorization: Basic base64(login:password) (считается при старте из users).
+  # Формат basic здесь не используется намеренно: чтобы браузер не получил нативной
+  # Basic-формы mlflow. Креды users должны совпадать с basic_auth.ini mlflow.
   - prefix: "/mlflow"
     target: "http://mlflow:5000"
-    auth_method: basic
+    auth_method: jwt2basic
     required_roles: ["user"]
 
 blacklist:

@@ -63,7 +63,7 @@ type BcryptConfig struct {
 type RouteConfig struct {
 	Prefix           string     `yaml:"prefix" validate:"required"`
 	Target           string     `yaml:"target" validate:"required,url"`
-	AuthMethod       AuthMethod `yaml:"auth_method" validate:"omitempty,oneof=jwt basic none"`
+	AuthMethod       AuthMethod `yaml:"auth_method" validate:"omitempty,oneof=jwt basic jwt2basic none"`
 	Redirect         bool       `yaml:"redirect"`
 	StripFirstPrefix bool       `yaml:"strip_first_prefix"`
 	RequiredRoles    []string   `yaml:"required_roles" validate:"dive,required"`
@@ -80,6 +80,10 @@ const (
 	AuthBasic AuthMethod = "basic"
 	// AuthJWT - проверка access/refresh кук (JWT). Используется по умолчанию.
 	AuthJWT AuthMethod = "jwt"
+	// AuthJWTBasic - проверка JWT-кук, как для AuthJWT, но при проксировании
+	// в целевой бэкенд подставляется заголовок Authorization: Basic
+	// (base64(login:password)), сформированный на этапе загрузки конфига.
+	AuthJWTBasic AuthMethod = "jwt2basic"
 )
 
 type User struct {
@@ -89,6 +93,10 @@ type User struct {
 	Email    string `yaml:"email" json:"email" validate:"omitempty,email"`
 	FullName string `yaml:"full_name" json:"full_name"`
 	Role     string `yaml:"role" json:"role" validate:"required"`
+	// BasicAuth - внутреннее поле: готовый заголовок Authorization: Basic
+	// (base64(login:password)) для jwt2basic-маршрутов. Заполняется в
+	// validateRoutes до bcrypt-хеширования пароля, в YAML/JSON не попадает.
+	BasicAuth string `yaml:"-" json:"-"`
 }
 
 // ToDomainUsers превращает юзеров конфига в доменные (для users-кеша).
@@ -104,6 +112,7 @@ func (c *Config) ToDomainUsers() []domain.User {
 			FirstName:      u.FullName,
 			HashedPassword: u.Password,
 			Role:           u.Role,
+			BasicAuth:      u.BasicAuth,
 		})
 	}
 	return users

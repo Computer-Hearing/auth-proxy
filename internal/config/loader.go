@@ -142,7 +142,9 @@ func validateRoutes(cfg *Config) error {
 			return fmt.Errorf("user[%d]: role '%s' is not in Roles list", user.ID, user.Role)
 		}
 
-		// хешируем пароль
+		// хешируем пароль, а BasicAuth (для jwt2basic-маршрутов) считаем
+		// ещё из открытого пароля - после хеширования исходник недоступен.
+		cfg.Users[i].BasicAuth = pkg.BasicAuthHeader(user.Login, user.Password)
 		hashPass, err := pkg.HashPassword(user.Password, cfg.Bcrypt.Cost)
 		if err != nil {
 			return fmt.Errorf("hash password: %w", err)
@@ -254,11 +256,12 @@ func createDefaultSuperAdmin(cfg *Config) (User, error) {
 	}
 
 	superAdmin := User{
-		ID:       maxID + 1,
-		Login:    "superadmin",
-		Password: superadminPass,
-		FullName: "superadmin",
-		Role:     cfg.Roles[len(cfg.Roles)-1],
+		ID:        maxID + 1,
+		Login:     "superadmin",
+		Password:  superadminPass,
+		FullName:  "superadmin",
+		Role:      cfg.Roles[len(cfg.Roles)-1],
+		BasicAuth: pkg.BasicAuthHeader("superadmin", "superadmin"),
 	}
 	return superAdmin, nil
 }

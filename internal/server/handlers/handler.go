@@ -61,7 +61,7 @@ func NewHandlers(opts *Options) (*AuthProxy, error) {
 		return nil, ErrUsersIsNil
 	}
 	cfg, logger := opts.Config, opts.Logger
-	proxy, err := routes.NewRoutesProxy(cfg)
+	proxy, err := routes.NewRoutesProxy(cfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("new routes proxy: %w", err)
 	}
@@ -113,9 +113,23 @@ func (h *AuthProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !h.authorizeBasic(w, r, route) {
 			return
 		}
+	case config.AuthJWTBasic:
+		// jwt + подстановка Basic-заголовка в таргет
+		claims, ok := h.authorize(w, r, route)
+		if !ok {
+			return
+		}
+		user, found := h.users.GetByUsername(r.Context(), claims.Username)
+		if !found || user.BasicAuth == "" {
+			h.logger.Error("jwt2basic: user has no BasicAuth configured",
+				slog.String("username", claims.Username), slog.String("path", proxyPath))
+			apierror.HandleAPIError(w, h.logger, apierror.ErrForbidden)
+			return
+		}
+		r.Header.Set("Authorization", user.BasicAuth)
 	default:
 		// по умолчанию - jwt
-		if !h.authorize(w, r, route) {
+		if _, ok := h.authorize(w, r, route); !ok {
 			return
 		}
 	}
@@ -167,7 +181,7 @@ func (h *AuthProxy) requireBasicAuth(w http.ResponseWriter, r *http.Request, use
 
 // authorize проверяет access/refresh куки и роль пользователя.
 //
-// Возвращает true, если можно проксировать запрос дальше.
+// Возвращает claims и true, если можно проксировать запрос дальше.
 // При false ответ (редирект на /login или /refresh, либо 403) уже записан в w.
 //
 // Ветка принятия решения:
@@ -178,7 +192,7 @@ func (h *AuthProxy) requireBasicAuth(w http.ResponseWriter, r *http.Request, use
 //	access истёк + refresh есть                -> /refresh
 //	access истёк, refresh нет                  -> /login
 //	access невалиден (подпись/alg)             -> /login (признак подмены, не истечения)
-func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *config.RouteConfig) bool {
+func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *config.RouteConfig) (*tokens.Claims, bool) {
 	access, _ := r.Cookie(h.cfg.JWT.AccessCookieKey)
 	refresh, _ := r.Cookie(h.cfg.JWT.RefreshCookieKey)
 
@@ -187,11 +201,11 @@ func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *con
 		if refresh != nil {
 			h.redirectToAuth(w, r, "refresh")
 			h.logger.Debug("access cookie is empty", slog.String("redirect", "refresh"))
-			return false
+			return nil, false
 		}
 		h.redirectToAuth(w, r, "login")
 		h.logger.Debug("access and refresh cookies are empty", slog.String("redirect", "login"))
-		return false
+		return nil, false
 	}
 
 	// access есть - пробуем распарсить
@@ -208,28 +222,28 @@ func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *con
 	if !errors.Is(err, jwt.ErrTokenExpired) {
 		h.redirectToAuth(w, r, "login")
 		h.logger.Debug("access cookie error", slog.String("redirect", "login"))
-		return false
+		return nil, false
 	}
 
 	// access истёк: если есть refresh - на /refresh, иначе - на логин
 	if refresh != nil {
 		h.redirectToAuth(w, r, "refresh")
 		h.logger.Debug("access cookie expired", slog.String("redirect", "refresh"))
-		return false
+		return nil, false
 	}
 	h.redirectToAuth(w, r, "login")
-	return false
+	return nil, false
 }
 
 // checkRole - роль из токена должна входить в RequiredRoles маршрута.
 // Ошибка роли - это 403, а НЕ редирект на /login: иначе после повторного
 // логина та же роль снова вернёт 403 и получится бесконечный цикл.
-func (h *AuthProxy) checkRole(w http.ResponseWriter, _ *http.Request, route *config.RouteConfig, claims *tokens.Claims) bool {
+func (h *AuthProxy) checkRole(w http.ResponseWriter, _ *http.Request, route *config.RouteConfig, claims *tokens.Claims) (*tokens.Claims, bool) {
 	if slices.Contains(route.RequiredRoles, claims.Role) {
-		return true
+		return claims, true
 	}
 	apierror.HandleAPIError(w, h.logger, apierror.ErrForbidden)
-	return false
+	return nil, false
 }
 
 // redirectToAuth редиректит пользователя на страницу auth-сервиса (/login

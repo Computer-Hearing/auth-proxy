@@ -268,6 +268,9 @@ func TestValidateRoutes_UserPasswordHashed(t *testing.T) {
 	if !pkg.CheckPassword("secret", u.Password) {
 		t.Error("hashed password should match original")
 	}
+	if u.BasicAuth != pkg.BasicAuthHeader("alice", "secret") {
+		t.Errorf("BasicAuth: got %q, want Basic header for alice:secret", u.BasicAuth)
+	}
 }
 
 func TestValidateRoutes_AutoSuperAdmin(t *testing.T) {
@@ -302,6 +305,9 @@ func TestValidateRoutes_AutoSuperAdmin(t *testing.T) {
 	}
 	if !pkg.CheckPassword("superadmin", sa.Password) {
 		t.Error("auto superadmin password should hash to 'superadmin'")
+	}
+	if sa.BasicAuth != pkg.BasicAuthHeader("superadmin", "superadmin") {
+		t.Errorf("auto superadmin BasicAuth: got %q", sa.BasicAuth)
 	}
 }
 
