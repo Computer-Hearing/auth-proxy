@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AUTH-PROXY | Профиль</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #12181f;
+      --border: #232b33;
+      --text: #d7dde3;
+      --muted: #6b7684;
+      --accent: #4fd1c5;
+      --accent-dim: #2f7a72;
+      --error: #ff6b6b;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--bg);
+      background-image:
+              linear-gradient(var(--border) 1px, transparent 1px),
+              linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 32px 32px;
+      background-position: center;
+      color: var(--text);
+      font-family: "SFMono-Regular", "JetBrains Mono", Consolas, Menlo, monospace;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 32px 32px 28px;
+      box-shadow: 0 0 0 1px rgba(79, 209, 197, 0.03), 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .prompt {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .prompt::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      flex-shrink: 0;
+    }
+
+    h2 {
+      margin: 0 0 24px;
+      font-size: 19px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .error {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      margin: 0 0 20px;
+      padding: 10px 12px;
+      background: rgba(255, 107, 107, 0.08);
+      border: 1px solid rgba(255, 107, 107, 0.25);
+      border-radius: 4px;
+      color: var(--error);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .error::before {
+      content: "✕";
+      font-size: 11px;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .profile {
+      margin-bottom: 24px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .row:first-child { border-top: 1px solid var(--border); }
+
+    .row .label {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+    }
+
+    .row .value {
+      font-size: 14px;
+      text-align: right;
+      word-break: break-word;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 12px;
+    }
+
+    .anon {
+      margin-bottom: 24px;
+      padding: 14px 0;
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 6px;
+      padding: 11px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      color: #eafffb;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.05s ease;
+    }
+
+    button:hover { background: #368079; }
+    button:active { transform: translateY(1px); }
+
+    a.button {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      padding: 11px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      color: #eafffb;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.05s ease;
+    }
+
+    a.button:hover { background: #368079; }
+    a.button:active { transform: translateY(1px); }
+
+    .footer {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <p class="prompt">auth-proxy // secure session</p>
+  <h2>{{if .LoggedIn}}Профиль пользователя{{else}}Главная{{end}}</h2>
+
+  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+
+  {{if .LoggedIn}}
+  <div class="profile">
+    <div class="row">
+      <span class="label">Логин</span>
+      <span class="value">{{.Username}}</span>
+    </div>
+    <div class="row">
+      <span class="label">Роль</span>
+      <span class="value"><span class="badge">{{.Role}}</span></span>
+    </div>
+    <div class="row">
+      <span class="label">Email</span>
+      <span class="value">{{.Email}}</span>
+    </div>
+  </div>
+
+  <form method="POST" action="/logout">
+    <input type="hidden" name="next" value="/login">
+    <button type="submit">Выйти</button>
+  </form>
+  {{else}}
+  <div class="anon">
+    Вы не вошли в систему. Перейдите на страницу входа, чтобы получить доступ
+    к защищённым ресурсам.
+  </div>
+  <a class="button" href="/login?next=/">Войти</a>
+  {{end}}
+
+  <div class="footer">
+    <span>Входные данные выдаёт Администратор площадки</span>
+    <a href="{{.GatewayURL}}">гейт</a>
+  </div>
+</div>
+</body>
+</html>

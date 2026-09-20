@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -163,7 +164,7 @@ func (h *AuthProxy) authorizeBasic(w http.ResponseWriter, r *http.Request, route
 	// роль пользователя должна подходить под minimum ролей маршрута
 	if !slices.Contains(route.RequiredRoles, user.Role) {
 		h.logger.Debug("basic auth role denied", slog.String("username", username), slog.String("role", user.Role))
-		apierror.HandleAPIError(w, h.logger, apierror.ErrForbidden)
+		h.denyAccess(w, r, user.Role)
 		return false
 	}
 
@@ -238,12 +239,31 @@ func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *con
 // checkRole - роль из токена должна входить в RequiredRoles маршрута.
 // Ошибка роли - это 403, а НЕ редирект на /login: иначе после повторного
 // логина та же роль снова вернёт 403 и получится бесконечный цикл.
-func (h *AuthProxy) checkRole(w http.ResponseWriter, _ *http.Request, route *config.RouteConfig, claims *tokens.Claims) (*tokens.Claims, bool) {
+func (h *AuthProxy) checkRole(w http.ResponseWriter, r *http.Request, route *config.RouteConfig, claims *tokens.Claims) (*tokens.Claims, bool) {
 	if slices.Contains(route.RequiredRoles, claims.Role) {
 		return claims, true
 	}
-	apierror.HandleAPIError(w, h.logger, apierror.ErrForbidden)
+	h.denyAccess(w, r, claims.Role)
 	return nil, false
+}
+
+// denyAccess - 403 при недостаточной роли. Браузеру (Accept: text/html)
+// редиректим на профиль auth-сервиса с error=forbidden, чтобы пользователь
+// мог разлогиниться на главной странице. API/скриптам отвечаем JSON как раньше.
+func (h *AuthProxy) denyAccess(w http.ResponseWriter, r *http.Request, role string) {
+	if isHTMLAccept(r) {
+		roleQL := url.QueryEscape(role)
+		redirectURL := h.cfg.Auth.BaseURL + "/?error=forbidden&role=" + roleQL
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+	apierror.HandleAPIError(w, h.logger, apierror.ErrForbidden)
+}
+
+// isHTMLAccept - запрос «из браузера» (Accept содержит text/html).
+// Обычный curl/API шлёт */* или application/json - для них всё остаётся JSON.
+func isHTMLAccept(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
 // redirectToAuth редиректит пользователя на страницу auth-сервиса (/login

@@ -4,7 +4,7 @@
 Один бинарник поднимает два HTTP-слушателя:
 
 - **gateway-сервис** (`server.port`, по умолчанию 5000) — проксирует трафик после проверки доступа;
-- **auth-сервис** (`auth.port`, по умолчанию 6000) — `/login`, `/refresh`, `/logout`, `/user/me`.
+- **auth-сервис** (`auth.port`, по умолчанию 6000) — `/login`, `/refresh`, `/logout`, `/user/me`, `/` (профиль).
 
 Для каждого маршрута (`routes[]`) задаётся `auth_method`: `jwt` (куки, по умолчанию),
 `basic` (Login/Password из `Authorization: Basic` для CLI, например MLflow), `jwt2basic`

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"auth-proxy/internal/domain"
 	"auth-proxy/internal/middleware"
 	_ "embed" // для //go:embed login_form.html
 
@@ -76,6 +77,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("/refresh", s.handleRefresh)
 	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/user/me", s.handleMe)
+	mux.HandleFunc("/", s.handleHome)
 	return middleware.Chain(mux, middleware.Recover, middleware.RequestID, middleware.Log)
 }
 
@@ -142,11 +144,12 @@ func (s *Service) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	s.redirectBack(w, r, next)
 }
 
-// handleLogout гасит обе куки и возвращает на next (или на "/")
+// handleLogout гасит обе куки и возвращает на "/" auth-сервиса.
+// home-страница на "/" сама покажет анонимный режим («вы не вошли → на /login»),
+// поэтому после выхода пользователь остаётся в пределах auth, а не улетает на гейт.
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
-	next := pkg.SafeNext(r.FormValue("next"))
 	s.clearAuthCookies(w)
-	s.redirectBack(w, r, next)
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 // redirectBack возвращает пользователя НА ГЕЙТ: внешний адрес гейта
@@ -160,26 +163,84 @@ func (s *Service) redirectBack(w http.ResponseWriter, r *http.Request, next stri
 
 // handleMe отдаёт данные пользователя по access-куке (для фронта)
 func (s *Service) handleMe(w http.ResponseWriter, r *http.Request) {
-	accessCookie, err := r.Cookie(s.cfg.JWT.AccessCookieKey)
-	if err != nil {
-		apierror.HandleAPIError(w, s.logger, apierror.ErrUnauthorized)
-		return
-	}
-
-	claims, err := s.jwt.ValidateAccessToken(accessCookie.Value)
-	if err != nil {
-		apierror.HandleAPIError(w, s.logger, apierror.ErrUnauthorized)
-		return
-	}
-
-	// Свежие данные берём из хранилища, а не из токена
-	user, ok := s.users.GetByID(r.Context(), claims.UserID)
+	user, ok := s.currentUser(r)
 	if !ok {
 		apierror.HandleAPIError(w, s.logger, apierror.ErrUnauthorized)
 		return
 	}
 
 	pkg.SendJSON(s.logger, w, user, http.StatusOK)
+}
+
+// currentUser достаёт пользователя по access-куке.
+// Нет куки / токен невалиден / пользователя нет в кеше - возвращает false.
+func (s *Service) currentUser(r *http.Request) (*domain.User, bool) {
+	accessCookie, err := r.Cookie(s.cfg.JWT.AccessCookieKey)
+	if err != nil {
+		return nil, false
+	}
+
+	claims, err := s.jwt.ValidateAccessToken(accessCookie.Value)
+	if err != nil {
+		return nil, false
+	}
+
+	// Свежие данные берём из хранилища, а не из токена
+	user, ok := s.users.GetByID(r.Context(), claims.UserID)
+	if !ok {
+		return nil, false
+	}
+	return user, true
+}
+
+// homeErrorText - коды ошибок, которые принимает корневая страница,
+// и их человекочитаемый текст. Всё остальное безопасно игнорируется.
+var homeErrorText = map[string]string{
+	"forbidden":    "Доступ запрещён: недостаточно прав для запрошенного маршрута.",
+	"unauthorized": "Требуется вход в систему.",
+}
+
+type homeViewData struct {
+	LoggedIn   bool
+	Error      string
+	Username   string
+	Role       string
+	Email      string
+	GatewayURL string
+}
+
+// handleHome - главная страница профиля на "/":
+// залогиненный пользователь видит свои данные и кнопку выхода,
+// аноним - предложение перейти на /login. Через ?error= код выводится
+// поясняющий баннер (например, forbidden после редиректа с 403).
+func (s *Service) handleHome(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user, loggedIn := s.currentUser(r)
+
+	data := homeViewData{
+		GatewayURL: s.cfg.Gateway.BaseURL,
+	}
+	if msg, ok := homeErrorText[r.FormValue("error")]; ok {
+		data.Error = msg
+		if role := r.FormValue("role"); role != "" && r.FormValue("error") == "forbidden" {
+			data.Error += " Ваша роль: " + role
+		}
+	}
+	if loggedIn {
+		data.LoggedIn = true
+		data.Username = user.Username
+		data.Role = user.Role
+		data.Email = user.Email
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := homeFormTemplate.Execute(w, data); err != nil {
+		s.logger.Error("render home", "error", err.Error())
+	}
 }
 
 // redirectLogin - редирект на /login с сохранением next
@@ -233,6 +294,11 @@ func (s *Service) clearCookie(w http.ResponseWriter, name string) {
 var loginFormHTML string
 
 var loginFormTemplate = template.Must(template.New("login").Parse(loginFormHTML))
+
+//go:embed home.html
+var homeHTML string
+
+var homeFormTemplate = template.Must(template.New("home").Parse(homeHTML))
 
 type loginFormData struct {
 	Next  string
