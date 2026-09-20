@@ -218,8 +218,6 @@ func (h *AuthProxy) authorize(w http.ResponseWriter, r *http.Request, route *con
 	}
 
 	// Истёкший токен - это нормальная ситуация: пробуем освежить через refresh.
-	// А вот невалидная подпись (jwt.ErrTokenSignatureInvalid и прочие, кроме
-	// expire) - признак подмены токена, обновлять такой не из чего и незачем.
 	if !errors.Is(err, jwt.ErrTokenExpired) {
 		h.redirectToAuth(w, r, "login")
 		h.logger.Debug("access cookie error", slog.String("redirect", "login"))

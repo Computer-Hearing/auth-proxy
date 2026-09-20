@@ -3,7 +3,7 @@ package auth
 import (
 	"auth-proxy/internal/domain"
 	"auth-proxy/internal/middleware"
-	_ "embed" // для //go:embed login_form.html
+	_ "embed"
 
 	"auth-proxy/internal/config"
 	"auth-proxy/internal/modules/tokens"
@@ -152,15 +152,6 @@ func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-// redirectBack возвращает пользователя НА ГЕЙТ: внешний адрес гейта
-// (cfg.Gateway.BaseURL) + относительный next.
-// next берём строго относительным (SafeNext), поэтому host всегда из конфига,
-// а не из запроса - open redirect невозможен.
-func (s *Service) redirectBack(w http.ResponseWriter, r *http.Request, next string) {
-	location := strings.TrimSuffix(s.cfg.Gateway.BaseURL, "/") + next
-	http.Redirect(w, r, location, http.StatusFound)
-}
-
 // handleMe отдаёт данные пользователя по access-куке (для фронта)
 func (s *Service) handleMe(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.currentUser(r)
@@ -170,43 +161,6 @@ func (s *Service) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pkg.SendJSON(s.logger, w, user, http.StatusOK)
-}
-
-// currentUser достаёт пользователя по access-куке.
-// Нет куки / токен невалиден / пользователя нет в кеше - возвращает false.
-func (s *Service) currentUser(r *http.Request) (*domain.User, bool) {
-	accessCookie, err := r.Cookie(s.cfg.JWT.AccessCookieKey)
-	if err != nil {
-		return nil, false
-	}
-
-	claims, err := s.jwt.ValidateAccessToken(accessCookie.Value)
-	if err != nil {
-		return nil, false
-	}
-
-	// Свежие данные берём из хранилища, а не из токена
-	user, ok := s.users.GetByID(r.Context(), claims.UserID)
-	if !ok {
-		return nil, false
-	}
-	return user, true
-}
-
-// homeErrorText - коды ошибок, которые принимает корневая страница,
-// и их человекочитаемый текст. Всё остальное безопасно игнорируется.
-var homeErrorText = map[string]string{
-	"forbidden":    "Доступ запрещён: недостаточно прав для запрошенного маршрута.",
-	"unauthorized": "Требуется вход в систему.",
-}
-
-type homeViewData struct {
-	LoggedIn   bool
-	Error      string
-	Username   string
-	Role       string
-	Email      string
-	GatewayURL string
 }
 
 // handleHome - главная страница профиля на "/":
@@ -241,6 +195,34 @@ func (s *Service) handleHome(w http.ResponseWriter, r *http.Request) {
 	if err := homeFormTemplate.Execute(w, data); err != nil {
 		s.logger.Error("render home", "error", err.Error())
 	}
+}
+
+// redirectBack возвращает пользователя НА ГЕЙТ: внешний адрес гейта
+// (cfg.Gateway.BaseURL) + относительный next.
+func (s *Service) redirectBack(w http.ResponseWriter, r *http.Request, next string) {
+	location := strings.TrimSuffix(s.cfg.Gateway.BaseURL, "/") + next
+	http.Redirect(w, r, location, http.StatusFound)
+}
+
+// currentUser достаёт пользователя по access-куке.
+// Нет куки / токен невалиден / пользователя нет в кеше - возвращает false.
+func (s *Service) currentUser(r *http.Request) (*domain.User, bool) {
+	accessCookie, err := r.Cookie(s.cfg.JWT.AccessCookieKey)
+	if err != nil {
+		return nil, false
+	}
+
+	claims, err := s.jwt.ValidateAccessToken(accessCookie.Value)
+	if err != nil {
+		return nil, false
+	}
+
+	// Свежие данные берём из хранилища, а не из токена
+	user, ok := s.users.GetByID(r.Context(), claims.UserID)
+	if !ok {
+		return nil, false
+	}
+	return user, true
 }
 
 // redirectLogin - редирект на /login с сохранением next
@@ -300,9 +282,25 @@ var homeHTML string
 
 var homeFormTemplate = template.Must(template.New("home").Parse(homeHTML))
 
+// homeErrorText - коды ошибок, которые принимает корневая страница,
+// и их человекочитаемый текст. Всё остальное безопасно игнорируется.
+var homeErrorText = map[string]string{
+	"forbidden":    "Доступ запрещён: недостаточно прав для запрошенного маршрута.",
+	"unauthorized": "Требуется вход в систему.",
+}
+
 type loginFormData struct {
 	Next  string
 	Error string
+}
+
+type homeViewData struct {
+	LoggedIn   bool
+	Error      string
+	Username   string
+	Role       string
+	Email      string
+	GatewayURL string
 }
 
 func (s *Service) renderLoginForm(w http.ResponseWriter, next, errMsg string) {
