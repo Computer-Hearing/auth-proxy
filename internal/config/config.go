@@ -41,6 +41,10 @@ type AuthConfig struct {
 	Port int `yaml:"port" env:"AUTH_PORT" envDefault:"6000" validate:"gte=1,lte=65535"`
 	// BaseURL - внешний адрес auth-сервиса (для Location в редиректах гейта)
 	BaseURL string `yaml:"base_url" env:"AUTH_BASE_URL" validate:"required,url"`
+	// AllowOrigins - CORS: список точных origin (scheme://host[:port])
+	// Пусто = полностью открыто: Access-Control-Allow-Origin: * и Allow-Credentials: false.
+	// Не пусто = только перечисленные origin и Allow-Credentials: true.
+	AllowOrigins []string `yaml:"allow_origins" env:"AUTH_ALLOW_ORIGINS" validate:"omitempty,dive,url"`
 }
 
 // JWTConfig - настройки JWT (обязательные секреты из ENV)

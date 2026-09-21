@@ -60,6 +60,7 @@ docker stack deploy -c docker-stack.yml auth-proxy
 | HTTPS перед обоими портами | терминация TLS (nginx/traefik/swarm ingress), иначе `Secure`-куки не сохранятся |
 | свои `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (≥32 символа) | в `config.yaml` или ENV; держать в секрете |
 | `JWT_COOKIE_DOMAIN` (напр. `.example.com`) | когда гейт и auth-сервис на разных поддоменах: кука должна жить на общем домене, иначе её не увидит второй поддомен |
+| `AUTH_ALLOW_ORIGINS` (напр. `https://app.example.com`) | CORS для auth-сервиса: точные origin фронтендов, обращающихся к `/user/me` через `fetch`. Пусто = `*` без кук |
 
 ### Проверка живости
 

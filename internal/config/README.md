@@ -25,10 +25,14 @@
 | `SERVER_SHUTDOWN_TIMEOUT`     | `10s`           | —            | Таймаут graceful shutdown (>= 1s) |
 | `JWT_ACCESS_COOKIE_KEY`       | `access_token`  | —            | Имя cookie access-токена |
 | `JWT_REFRESH_COOKE_KEY`       | `refresh_token` | —            | Имя cookie refresh-токена (так в теге) |
+| `JWT_COOKIE_DOMAIN`           | —               | —            | Домен кук (напр. `.example.com`) — чтобы куки были общими для поддоменов гейта и auth-сервиса. Пусто = привязка к текущему хосту |
 | `JWT_ACCESS_SECRET`           | —               | да           | Секрет access-токена (>= 32 симв.) |
 | `JWT_REFRESH_SECRET`          | —               | да           | Секрет refresh-токена (>= 32 симв.) |
 | `JWT_ACCESS_TTL`              | `15m`           | —            | TTL access-токена (>= 1m) |
 | `JWT_REFRESH_TTL`             | `24h`           | —            | TTL refresh-токена (>= 1m, > access TTL) |
+| `AUTH_PORT`                   | `6000`          | —            | Порт auth-сервиса (1–65535) |
+| `AUTH_BASE_URL`               | —               | да           | Внешний адрес auth-сервиса |
+| `AUTH_ALLOW_ORIGINS`          | —               | —            | CORS: разрешённые origin через запятую (см. «Аутентификация из браузера» ниже). Пусто = `*` без кук |
 | `BCRYPT_COST`                 | `12`            | —            | Стоимость bcrypt (4–31) |
 | `ROLES`                       | `user,admin,superadmin` | —   | Роли через запятую (>= 3, все не пустые) |
 
@@ -68,10 +72,16 @@ server:
 gateway:
   base_url: "http://localhost:5000"
 
-# auth-сервис: второй http-слушатель в том же бинарнике
+# auth-сервис: второй http-слушатель в том же бинарнике.
+# allow_origins: CORS-разрешённые origin (точные scheme://host[:port]),
+# напр. свои поддомены. Пусто = Access-Control-Allow-Origin: *, без кук.
+# Не пусто = только из списка, с Allow-Credentials: true (куки идут).
 auth:
   port: 8081
   base_url: "http://localhost:8081"
+  allow_origins:
+    - "http://localhost:3000"
+    - "https://app.example.com"
 
 jwt:
   access_cookie_key: access_token
@@ -110,7 +120,7 @@ users:
 
 - **`server`** — порт и таймауты HTTP-сервера.
 - **`gateway`** — внешний адрес гейта (`base_url`): на него auth-сервис редиректит после логина/обновления/выхода.
-- **`auth`** — порт и внешний адрес auth-сервиса (см. «Жизненный цикл токенов» ниже).
+- **`auth`** — порт и внешний адрес auth-сервиса, а также CORS (`allow_origins`) для доступа из браузера (см. «Аутентификация из браузера» ниже) и «Жизненный цикл токенов».
 - **`jwt`** — названия cookie и секреты для access/refresh токенов, их TTL.
 - **`bcrypt`** — стоимость хеширования паролей.
 - **`roles`** — общий список ролей по возрастанию полномочий (слева направо: самая низкая → самая высокая). Используется для «лесенки» ролей в маршрутах.
@@ -139,6 +149,16 @@ users:
 На `/` auth-сервиса живёт главная страница-профиль: залогиненному пользователю видно логин/роль/email и кнопку «Выйти» (`/logout`), анонимному — предложение пройти на `/login`. Та же страница показывает баннер ошибки после 403 (`?error=forbidden`) и позволяет выйти из-под неподходящей учётки.
 
 `next` — исходный путь запроса, он же — в auth-сервисе. После логина/обновления/выхода auth-сервис редиректит на `gateway.base_url + next` (абсолютный адрес гейта), а не на относительный путь: иначе браузер резолвит Location относительно origin auth-сервиса и пользователь ушёл бы не туда. Принимается только относительный путь (защита от open redirect).
+
+### Аутентификация из браузера (CORS)
+
+Auth-сервис отдаёт API-эндпоинты (`/user/me`, `/refresh`, `/logout`, `/login`). Фронтенд на другом домене/поддомене обращается к ним через `fetch` — такие кросс-доменные запросы регулируются CORS (`auth.allow_origins`):
+
+- **`allow_origins` не задан** — auth-сервис открыт нараспашку: отвечает `Access-Control-Allow-Origin: *` и `Access-Control-Allow-Credentials: false`. Работает для простых GET-запросов без кук, но браузер **не передаст куки** и не покажет их в ответе.
+- **`allow_origins` задан** (точные origin, например `https://app.example.com`) — разрешён только перечисленный origin (echo-ится в ответ), `Access-Control-Allow-Credentials: true`, куки ходят. Чужой origin CORS-заголовков не получает — браузер сам заблокирует ответ.
+- Preflight (`OPTIONS` перед `POST`/`fetch` с кастомными заголовками) обрабатывается автоматически: 204 + `Access-Control-Allow-Methods` + echo запрошенных `Access-Control-Allow-Headers`.
+
+Куки при этом должны быть общими для всех поддоменов — задаётся через `jwt.cookie_domain` (например `.example.com`). Без него браузер не отправит куки auth-сервиса с другого поддомена, даже при разрешённом CORS.
 
 ### Маршрут (`routes[]`)
 

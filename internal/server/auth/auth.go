@@ -78,7 +78,8 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/user/me", s.handleMe)
 	mux.HandleFunc("/", s.handleHome)
-	return middleware.Chain(mux, middleware.Recover, middleware.RequestID, middleware.Log)
+	return middleware.Chain(mux, middleware.Recover, middleware.RequestID, middleware.Log,
+		middleware.CORS(s.cfg.Auth.AllowOrigins))
 }
 
 // handleLogin: GET - HTML-форма, POST - проверка пароля и установка кук.
