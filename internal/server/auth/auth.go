@@ -145,12 +145,10 @@ func (s *Service) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	s.redirectBack(w, r, next)
 }
 
-// handleLogout гасит обе куки и возвращает на "/" auth-сервиса.
-// home-страница на "/" сама покажет анонимный режим («вы не вошли → на /login»),
-// поэтому после выхода пользователь остаётся в пределах auth, а не улетает на гейт.
+// handleLogout просто удаляет auth-куки и отвечает 204
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.clearAuthCookies(w)
-	http.Redirect(w, r, "/", http.StatusFound)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleMe отдаёт данные пользователя по access-куке (для фронта)

@@ -199,8 +199,7 @@
     </div>
   </div>
 
-  <form method="POST" action="/logout">
-    <input type="hidden" name="next" value="/login">
+  <form id="logout-form" method="POST" action="/logout">
     <button type="submit">Выйти</button>
   </form>
   {{else}}
@@ -217,4 +216,14 @@
   </div>
 </div>
 </body>
+
+<script>
+  // /logout гасит куки и отвечает 204 без редиректа, поэтому страницу
+  // перезагружаем сами — иначе она покажет профиль уже вышедшего пользователя.
+  document.getElementById('logout-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    await fetch('/logout', { method: 'POST' });
+    window.location.reload();
+  });
+</script>
 </html>
