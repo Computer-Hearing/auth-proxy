@@ -7,7 +7,7 @@
 - **auth-сервис** (`auth.port`, по умолчанию 6000) — `/login`, `/refresh`, `/logout`, `/user/me`, `/` (профиль).
 
 Для каждого маршрута (`routes[]`) задаётся `auth_method`: `jwt` (куки, по умолчанию),
-`basic` (Login/Password из `Authorization: Basic` для CLI, например MLflow), `jwt2basic`
+`basic` (Login/Password из `Authorization: Basic`, например, для CLI MLflow), `jwt2basic`
 (принимаем JWT-куки, бэкенду подставляем `Authorization: Basic`) или `none`
 (маршрут открыт). Роль для `jwt`/`jwt2basic`/`basic` проверяется через `required_roles`.
 Подробности полей — в `internal/config/README.md`.
@@ -27,13 +27,6 @@ go run ./cmd/proxy
 По сути можно пользоваться только yaml-конфигурацией.
 ## Docker
 
-### Сборка и публикация образа
-
-Публичный адрес — Docker Hub. Проект собирается двумя стадиями, рантайм —
-`alpine:3.21` с `curl` и `ca-certificates` (полезно для диагностики изнутри
-и для проверки живости). Локальные секреты (`config.yaml`, `.env`) в образ
-не попадают — их исключает `.dockerignore`.
-
 ### Локально: docker compose
 
 ```bash
@@ -42,12 +35,6 @@ docker compose up -d --build
 
 Конфиг монтируется из `./config.yaml` в `/etc/auth-proxy/config.yaml` (read-only), порты gateway-сервиса и
 auth-сервиса публикуются как 5000/6000.
-
-### Docker Swarm
-
-```bash
-docker stack deploy -c docker-stack.yml auth-proxy
-```
 
 Файл конфига (`./config.yaml`) раздаётся на все ноды как **docker config** и монтируется
 в `/etc/auth-proxy/config.yaml`.
@@ -67,5 +54,4 @@ docker stack deploy -c docker-stack.yml auth-proxy
 `HEALTHCHECK` встроен в `Dockerfile` и `docker-stack.yml` и делает
 `curl -f http://127.0.0.1:5000/healthz`. `/healthz` отдаёт
 `{"status":"ok","version":"..."}` на гейте и `{"status":"ok"}` на
-auth-сервисе. Чтобы Swarm также проверял auth-порт, добавьте проверку вручную
-или держите `8081` за ingress с внешним пробингом.
+auth-сервисе.
