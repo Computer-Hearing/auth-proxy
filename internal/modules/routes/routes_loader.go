@@ -23,6 +23,7 @@ type routeEntry struct {
 // routePatternEntry - скомпилированный паттерн маршрута + его обработчик
 type routePatternEntry struct {
 	pattern *pkg.RoutePattern
+	host    string
 	entry   routeEntry
 }
 
@@ -59,7 +60,7 @@ func NewRoutesProxy(cfg *config.Config, logger *slog.Logger) (*RoutesProxy, erro
 			entry.proxy = proxy
 		}
 
-		routes = append(routes, routePatternEntry{pattern: pattern, entry: entry})
+		routes = append(routes, routePatternEntry{pattern: pattern, host: route.Host, entry: entry})
 	}
 
 	return &RoutesProxy{routes: routes}, nil
@@ -68,11 +69,15 @@ func NewRoutesProxy(cfg *config.Config, logger *slog.Logger) (*RoutesProxy, erro
 // entry находит обработчик по самому специфичному совпавшему паттерну:
 // длиннее литеральная часть -> длиннее паттерн -> раньше в конфиге.
 // Первый совпавший маршрут при равной специфичности и есть самый ранний в конфиге.
-func (rp *RoutesProxy) entry(path string) (routeEntry, bool) {
+func (rp *RoutesProxy) entry(path, host string) (routeEntry, bool) {
 	var best *routeEntry
 	var bestPattern *pkg.RoutePattern
 
 	for _, re := range rp.routes {
+		// Проверяем host (если задан в маршруте)
+		if re.host != "" && re.host != host {
+			continue
+		}
 		if !re.pattern.Match(path) {
 			continue
 		}
@@ -90,8 +95,8 @@ func (rp *RoutesProxy) entry(path string) (routeEntry, bool) {
 }
 
 // Proxy возвращает ReverseProxy для пути по самому специфичному совпавшему паттерну
-func (rp *RoutesProxy) Proxy(path string) *httputil.ReverseProxy {
-	entry, ok := rp.entry(path)
+func (rp *RoutesProxy) Proxy(path, host string) *httputil.ReverseProxy {
+	entry, ok := rp.entry(path, host)
 	if !ok {
 		return nil
 	}
@@ -100,7 +105,7 @@ func (rp *RoutesProxy) Proxy(path string) *httputil.ReverseProxy {
 
 // ServeHTTP проксирует запрос или редиректит на целевой сервис
 func (rp *RoutesProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	entry, ok := rp.entry(r.URL.Path)
+	entry, ok := rp.entry(r.URL.Path, r.Host)
 	if !ok {
 		http.Error(w, "path not found in config", http.StatusNotFound)
 		return

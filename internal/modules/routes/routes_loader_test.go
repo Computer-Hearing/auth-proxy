@@ -53,6 +53,14 @@ func serveRoutes(t *testing.T, rp *RoutesProxy, path string) *httptest.ResponseR
 	return rec
 }
 
+func serveRoutesHost(t *testing.T, rp *RoutesProxy, path, host string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+path, nil)
+	rec := httptest.NewRecorder()
+	rp.ServeHTTP(rec, req)
+	return rec
+}
+
 func TestRoutesProxy_ServeHTTP_ProxyLongestPrefix(t *testing.T) {
 	users := &pathRecorder{}
 	usersDelete := &pathRecorder{}
@@ -167,7 +175,7 @@ func TestRoutesProxy_Proxy(t *testing.T) {
 		{Prefix: "/api/users/delete", Target: usersDelete.URL, AuthMethod: config.AuthNone},
 	})
 
-	if proxy := rp.Proxy("/api/users/delete/5"); proxy == nil {
+	if proxy := rp.Proxy("/api/users/delete/5", ""); proxy == nil {
 		t.Fatal("expected proxy for longest matching prefix, got nil")
 	} else {
 		req := httptest.NewRequest(http.MethodGet, "http://proxy.local/api/users/delete/5", nil)
@@ -179,10 +187,10 @@ func TestRoutesProxy_Proxy(t *testing.T) {
 		t.Errorf("backend paths: got %v, want %v", got, want)
 	}
 
-	if proxy := rp.Proxy("/api/users"); proxy == nil {
+	if proxy := rp.Proxy("/api/users", ""); proxy == nil {
 		t.Error("expected proxy for /api/users")
 	}
-	if proxy := rp.Proxy("/unknown"); proxy != nil {
+	if proxy := rp.Proxy("/unknown", ""); proxy != nil {
 		t.Error("expected nil proxy for unknown path")
 	}
 }
@@ -298,6 +306,37 @@ func TestRoutesProxy_ServeHTTP_WildcardFileRoot(t *testing.T) {
 	}
 	if rec := serveRoutes(t, rp, "/static/app.js"); rec.Code != http.StatusNotFound {
 		t.Errorf("no cross-segment match: got code %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestRoutesProxy_ServeHTTP_WithHost(t *testing.T) {
+	portainer := &pathRecorder{}
+	defaultSvc := &pathRecorder{}
+
+	portainerSrv := startBackend(t, portainer.ServeHTTPName("portainer"))
+	defaultSrv := startBackend(t, defaultSvc.ServeHTTPName("default"))
+
+	rp := buildProxy(t, []config.RouteConfig{
+		{Prefix: "/", Target: "https://www.kuronami.fun", AuthMethod: config.AuthNone, Redirect: true},
+		{Prefix: "/**", Host: "portainer.kuronami.fun", Target: portainerSrv.URL, AuthMethod: config.AuthNone},
+		{Prefix: "/**", Target: defaultSrv.URL, AuthMethod: config.AuthNone},
+	})
+
+	// Host: portainer.kuronami.fun → portainer backend
+	if rec := serveRoutesHost(t, rp, "/", "portainer.kuronami.fun"); rec.Code != http.StatusOK {
+		t.Fatalf("portainer host: got code %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Host: other.kuronami.fun → default backend
+	if rec := serveRoutesHost(t, rp, "/", "other.kuronami.fun"); rec.Code != http.StatusOK {
+		t.Fatalf("other host: got code %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if got, want := portainer.Paths(), []string{"/"}; !equalStrings(got, want) {
+		t.Errorf("portainer backend paths: got %v, want %v", got, want)
+	}
+	if got, want := defaultSvc.Paths(), []string{"/"}; !equalStrings(got, want) {
+		t.Errorf("default backend paths: got %v, want %v", got, want)
 	}
 }
 
