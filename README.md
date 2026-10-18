@@ -15,9 +15,10 @@
 ### Маршрутизация по host
 
 Поле `host` позволяет создавать маршруты с одинаковым `prefix`, но разными доменами
-(virtual hosting). Совпадение — точное (`r.Host == route.Host`). Если `host` не указан,
-маршрут подходит под любой host. При равной специфичности префикса маршрут с `host`
-приоритетнее маршрута без него:
+(virtual hosting). Поддерживается точное совпадение и wildcard одного уровня (`*.example.com`).
+Если `host` не указан, маршрут подходит под любой host.
+
+Приоритет при равной специфичности префикса: **точный host > wildcard host > пустой host**.
 
 ```yaml
 routes:
@@ -26,15 +27,19 @@ routes:
     target: "http://api_service:8085"
 
   - prefix: "/api"
-    host: "analytics.example.com"
-    target: "http://analytics_service:8086"
+    host: "*.example.com"
+    target: "http://wildcard_service:8086"
 
   - prefix: "/api"
     target: "http://default_api:8080"
 ```
 
-Запрос `Host: api.example.com` → первый маршрут, `Host: analytics.example.com` → второй,
-любой другой host → третий.
+| Запрос `Host` | Маршрут |
+|---|---|
+| `api.example.com` | api_service (точный) |
+| `grafana.example.com` | wildcard_service (wildcard) |
+| `a.b.example.com` | default_api (wildcard не матчит два уровня) |
+| `other.com` | default_api |
 
 ## Быстрый старт локально
 

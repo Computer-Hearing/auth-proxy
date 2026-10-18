@@ -447,6 +447,62 @@ func TestGetRouteByPrefix_HostPriority(t *testing.T) {
 	}
 }
 
+func TestMatchHost_Wildcard(t *testing.T) {
+	cases := []struct {
+		routeHost string
+		reqHost   string
+		want      bool
+	}{
+		{"*.example.com", "grafana.example.com", true},
+		{"*.example.com", "api.example.com", true},
+		{"*.example.com", "a.b.example.com", false},
+		{"*.example.com", "example.com", false},
+		{"*.test.example.com", "grafana.test.example.com", true},
+		{"*.test.example.com", "a.b.test.example.com", false},
+		{"api.example.com", "api.example.com", true},
+		{"api.example.com", "other.example.com", false},
+		{"", "anything.com", false},
+	}
+
+	for _, tc := range cases {
+		got := matchHost(tc.routeHost, tc.reqHost)
+		if got != tc.want {
+			t.Errorf("matchHost(%q, %q) = %v, want %v", tc.routeHost, tc.reqHost, got, tc.want)
+		}
+	}
+}
+
+func TestGetRouteByPrefix_WildcardHost(t *testing.T) {
+	cfg := &Config{
+		Routes: []RouteConfig{
+			{Prefix: "/", Host: "*.example.com", Target: "http://wildcard:8080"},
+			{Prefix: "/", Host: "specific.example.com", Target: "http://specific:8080"},
+			{Prefix: "/", Target: "http://default:8080"},
+		},
+	}
+
+	cases := []struct {
+		host string
+		want string
+	}{
+		{"grafana.example.com", "http://wildcard:8080"},
+		{"specific.example.com", "http://specific:8080"},
+		{"other.com", "http://default:8080"},
+		{"a.b.example.com", "http://default:8080"},
+	}
+
+	for _, tc := range cases {
+		route := cfg.GetRouteByPrefix("/", tc.host)
+		if route == nil {
+			t.Errorf("host %s: got nil, want %s", tc.host, tc.want)
+			continue
+		}
+		if route.Target != tc.want {
+			t.Errorf("host %s: got %s, want %s", tc.host, route.Target, tc.want)
+		}
+	}
+}
+
 func TestValidateRoutes_InvalidWildcardPrefix(t *testing.T) {
 	cfg := &Config{
 		Roles: []string{"user", "admin", "superadmin"},

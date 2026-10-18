@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"slices"
+	"strings"
 )
 
 var (
@@ -214,6 +215,21 @@ func (c *Config) IsIPBlacklisted(ipStr string) bool {
 	return false
 }
 
+// matchHost проверяет соответствие host маршрута заголовку Host запроса.
+// Поддерживает wildcard одного уровня: *.example.com матчит grafana.example.com,
+// но не матчит a.b.example.com или example.com.
+func matchHost(routeHost, requestHost string) bool {
+	if strings.HasPrefix(routeHost, "*.") {
+		base := routeHost[2:] // "example.com"
+		if !strings.HasSuffix(requestHost, "."+base) {
+			return false
+		}
+		subdomain := strings.TrimSuffix(requestHost, "."+base)
+		return subdomain != "" && !strings.Contains(subdomain, ".")
+	}
+	return routeHost == requestHost
+}
+
 // GetRouteByPrefix ищет маршрут по пути (самое специфичное совпадение:
 // длиннее литеральная часть, затем длиннее паттерн, затем раньше в конфиге).
 // Первый совпавший маршрут при равной специфичности и есть самый ранний в конфиге.
@@ -223,7 +239,7 @@ func (c *Config) GetRouteByPrefix(path, host string) *RouteConfig {
 
 	for i, route := range c.Routes {
 		// Проверяем host (если задан в маршруте)
-		if route.Host != "" && route.Host != host {
+		if route.Host != "" && !matchHost(route.Host, host) {
 			continue
 		}
 
@@ -235,9 +251,10 @@ func (c *Config) GetRouteByPrefix(path, host string) *RouteConfig {
 			continue
 		}
 
-		// Приоритет: более специфичный префикс > маршрут с host > раньше в конфиге
+		// Приоритет: более специфичный префикс > точный host > wildcard host > пустой host
 		if best == nil || pattern.MoreSpecific(bestPattern) ||
-			(route.Host != "" && best.Host == "") {
+			(route.Host != "" && best.Host == "") ||
+			(route.Host != "" && !strings.HasPrefix(route.Host, "*.") && strings.HasPrefix(best.Host, "*.")) {
 			best = &c.Routes[i]
 			bestPattern = pattern
 		}

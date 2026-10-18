@@ -37,6 +37,13 @@ routes:
     auth_method: jwt
     required_roles: ["admin"]
 
+  # wildcard host: любой поддомен example.com (кроме api.example.com выше)
+  - prefix: "/api"
+    host: "*.example.com"
+    target: "http://wildcard_service:8086"
+    auth_method: jwt
+    required_roles: ["user"]
+
   # MLflow через jwt2basic: браузер с JWT-куками логинится через гейт, а бэкенду
   # уходит Authorization: Basic base64(login:password) (считается при старте из users).
   # Формат basic здесь не используется намеренно: чтобы браузер не получил нативной
