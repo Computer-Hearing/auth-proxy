@@ -65,6 +65,7 @@ type BcryptConfig struct {
 
 // RouteConfig - маршрут для Gateway
 type RouteConfig struct {
+	Host             string     `yaml:"host"`
 	Prefix           string     `yaml:"prefix" validate:"required"`
 	Target           string     `yaml:"target" validate:"required,url"`
 	AuthMethod       AuthMethod `yaml:"auth_method" validate:"omitempty,oneof=jwt basic jwt2basic none"`

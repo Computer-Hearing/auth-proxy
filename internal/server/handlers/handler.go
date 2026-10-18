@@ -97,7 +97,7 @@ func (h *AuthProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// смотрим есть ли этот маршрут в нашем конфиге
-	route := h.cfg.GetRouteByPrefix(proxyPath)
+	route := h.cfg.GetRouteByPrefix(proxyPath, r.Host)
 	if route == nil {
 		h.logger.Debug("Route not found", slog.String("path", proxyPath), slog.String("ip", fingerprints.IP))
 		apierror.HandleAPIError(w, h.logger, apierror.ErrPathNotFound)

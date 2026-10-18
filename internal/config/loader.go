@@ -127,11 +127,12 @@ func validateRoutes(cfg *Config) error {
 			cfg.Routes[i].RequiredRoles = slices.Clone(cfg.Roles[minIdx:])
 		}
 
-		// Проверка на дубликаты префиксов
-		if seen[route.Prefix] {
-			return fmt.Errorf("route[%d]: duplicate prefix '%s'", i, route.Prefix)
+		// Проверка на дубликаты префиксов (с учётом host)
+		routeKey := route.Prefix + "|" + route.Host
+		if seen[routeKey] {
+			return fmt.Errorf("route[%d]: duplicate prefix '%s' with host '%s'", i, route.Prefix, route.Host)
 		}
-		seen[route.Prefix] = true
+		seen[routeKey] = true
 	}
 
 	// Валидация пользователей, за одно проверяем есть ли хотя бы один суперадмин
@@ -216,11 +217,16 @@ func (c *Config) IsIPBlacklisted(ipStr string) bool {
 // GetRouteByPrefix ищет маршрут по пути (самое специфичное совпадение:
 // длиннее литеральная часть, затем длиннее паттерн, затем раньше в конфиге).
 // Первый совпавший маршрут при равной специфичности и есть самый ранний в конфиге.
-func (c *Config) GetRouteByPrefix(path string) *RouteConfig {
+func (c *Config) GetRouteByPrefix(path, host string) *RouteConfig {
 	var best *RouteConfig
 	var bestPattern *pkg.RoutePattern
 
 	for i, route := range c.Routes {
+		// Проверяем host (если задан в маршруте)
+		if route.Host != "" && route.Host != host {
+			continue
+		}
+
 		pattern, err := pkg.CachedRoutePattern(route.Prefix)
 		if err != nil {
 			continue
@@ -229,7 +235,9 @@ func (c *Config) GetRouteByPrefix(path string) *RouteConfig {
 			continue
 		}
 
-		if best == nil || pattern.MoreSpecific(bestPattern) {
+		// Приоритет: более специфичный префикс > маршрут с host > раньше в конфиге
+		if best == nil || pattern.MoreSpecific(bestPattern) ||
+			(route.Host != "" && best.Host == "") {
 			best = &c.Routes[i]
 			bestPattern = pattern
 		}

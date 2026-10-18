@@ -12,6 +12,30 @@
 (маршрут открыт). Роль для `jwt`/`jwt2basic`/`basic` проверяется через `required_roles`.
 Подробности полей — в `internal/config/README.md`.
 
+### Маршрутизация по host
+
+Поле `host` позволяет создавать маршруты с одинаковым `prefix`, но разными доменами
+(virtual hosting). Совпадение — точное (`r.Host == route.Host`). Если `host` не указан,
+маршрут подходит под любой host. При равной специфичности префикса маршрут с `host`
+приоритетнее маршрута без него:
+
+```yaml
+routes:
+  - prefix: "/api"
+    host: "api.example.com"
+    target: "http://api_service:8085"
+
+  - prefix: "/api"
+    host: "analytics.example.com"
+    target: "http://analytics_service:8086"
+
+  - prefix: "/api"
+    target: "http://default_api:8080"
+```
+
+Запрос `Host: api.example.com` → первый маршрут, `Host: analytics.example.com` → второй,
+любой другой host → третий.
+
 ## Быстрый старт локально
 
 ```bash

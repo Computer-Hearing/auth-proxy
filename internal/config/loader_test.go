@@ -36,7 +36,7 @@ func TestValidateRoutes_RoleLadder(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		route := cfg.GetRouteByPrefix(tc.prefix)
+		route := cfg.GetRouteByPrefix(tc.prefix, "")
 		if route == nil {
 			t.Fatalf("route %s not found", tc.prefix)
 		}
@@ -46,11 +46,11 @@ func TestValidateRoutes_RoleLadder(t *testing.T) {
 	}
 
 	// auth_method не указан -> по умолчанию jwt
-	if got := cfg.GetRouteByPrefix("/c").AuthMethod; got != AuthJWT {
+	if got := cfg.GetRouteByPrefix("/c", "").AuthMethod; got != AuthJWT {
 		t.Errorf("route /c: default auth_method = %q, want %q", got, AuthJWT)
 	}
 	// none-маршрут остаётся none
-	if got := cfg.GetRouteByPrefix("/d").AuthMethod; got != AuthNone {
+	if got := cfg.GetRouteByPrefix("/d", "").AuthMethod; got != AuthNone {
 		t.Errorf("route /d: auth_method = %q, want %q", got, AuthNone)
 	}
 }
@@ -352,7 +352,7 @@ func TestGetRouteByPrefix_Wildcard(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		route := cfg.GetRouteByPrefix(tc.path)
+		route := cfg.GetRouteByPrefix(tc.path, "")
 		if tc.want == "" {
 			if route != nil {
 				t.Errorf("path %s: got %s, want nil", tc.path, route.Prefix)
@@ -366,6 +366,84 @@ func TestGetRouteByPrefix_Wildcard(t *testing.T) {
 		if route.Prefix != tc.want {
 			t.Errorf("path %s: got %s, want %s", tc.path, route.Prefix, tc.want)
 		}
+	}
+}
+
+func TestValidateRoutes_DuplicatePrefixWithSameHost(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/api", Host: "api.example.com", Target: "http://x", AuthMethod: AuthNone},
+			{Prefix: "/api", Host: "api.example.com", Target: "http://y", AuthMethod: AuthNone},
+		},
+	}
+
+	if err := validateRoutes(cfg); err == nil {
+		t.Fatal("expected error for duplicate prefix with same host, got nil")
+	}
+}
+
+func TestValidateRoutes_SamePrefixDifferentHosts(t *testing.T) {
+	cfg := &Config{
+		Roles: []string{"user", "admin", "superadmin"},
+		Routes: []RouteConfig{
+			{Prefix: "/api", Host: "api.example.com", Target: "http://x", AuthMethod: AuthNone},
+			{Prefix: "/api", Host: "analytics.example.com", Target: "http://y", AuthMethod: AuthNone},
+			{Prefix: "/api", Target: "http://z", AuthMethod: AuthNone},
+		},
+	}
+
+	if err := validateRoutes(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGetRouteByPrefix_WithHost(t *testing.T) {
+	cfg := &Config{
+		Routes: []RouteConfig{
+			{Prefix: "/api", Host: "api.example.com", Target: "http://api:8080"},
+			{Prefix: "/api", Host: "analytics.example.com", Target: "http://analytics:8080"},
+			{Prefix: "/api", Target: "http://default:8080"},
+		},
+	}
+
+	cases := []struct {
+		path string
+		host string
+		want string
+	}{
+		{"/api", "api.example.com", "http://api:8080"},
+		{"/api", "analytics.example.com", "http://analytics:8080"},
+		{"/api", "other.com", "http://default:8080"},
+		{"/api", "", "http://default:8080"},
+	}
+
+	for _, tc := range cases {
+		route := cfg.GetRouteByPrefix(tc.path, tc.host)
+		if route == nil {
+			t.Errorf("path %s host %s: got nil, want %s", tc.path, tc.host, tc.want)
+			continue
+		}
+		if route.Target != tc.want {
+			t.Errorf("path %s host %s: got %s, want %s", tc.path, tc.host, route.Target, tc.want)
+		}
+	}
+}
+
+func TestGetRouteByPrefix_HostPriority(t *testing.T) {
+	cfg := &Config{
+		Routes: []RouteConfig{
+			{Prefix: "/api", Target: "http://default:8080"},
+			{Prefix: "/api", Host: "api.example.com", Target: "http://api:8080"},
+		},
+	}
+
+	route := cfg.GetRouteByPrefix("/api", "api.example.com")
+	if route == nil {
+		t.Fatal("route not found")
+	}
+	if route.Target != "http://api:8080" {
+		t.Errorf("got %s, want http://api:8080 (host-specific should win)", route.Target)
 	}
 }
 
