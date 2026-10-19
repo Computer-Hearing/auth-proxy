@@ -6,7 +6,7 @@
 2. **`.env` файл** — если есть в рабочей директории, загружается через `godotenv`. Уже заданные переменные окружения он **не перезаписывает**.
 3. **YAML-файл** — путь берётся из `YAML_CONFIG_PATH` (по умолчанию `config.yaml`). Явно указанные в YAML значения перекрывают ENV.
 
-После загрузки конфиг проходит валидацию (`go-playground/validator`, проверка маршрутов, проверка blacklist). При ошибке загрузки/валидации `config.Load()` возвращает ошибку.
+После загрузки конфиг проходит валидацию (`go-playground/validator`, проверка маршрутов и пользователей), затем достраиваются значения по умолчанию. При ошибке загрузки/валидации `config.Load()` возвращает ошибку.
 
 Готовая в разработке копия: `internal/config/example.env` и `internal/config/example.config.yaml`.
 
@@ -18,115 +18,90 @@
 
 | Переменная                    | По умолчанию    | Обязательная | Описание |
 |-------------------------------|-----------------|--------------|----------|
-| `YAML_CONFIG_PATH`            | `config.yaml`   | —            | Путь к YAML-конфигу |
-| `SERVER_PORT`                 | `5000`          | —            | Порт сервера (1–65535) |
-| `SERVER_READ_TIMEOUT`         | `5s`            | —            | Read timeout сервера (>= 1s) |
-| `SERVER_WRITE_TIMEOUT`        | `10s`           | —            | Write timeout сервера (>= 1s) |
-| `SERVER_SHUTDOWN_TIMEOUT`     | `10s`           | —            | Таймаут graceful shutdown (>= 1s) |
-| `JWT_ACCESS_COOKIE_KEY`       | `access_token`  | —            | Имя cookie access-токена |
-| `JWT_REFRESH_COOKE_KEY`       | `refresh_token` | —            | Имя cookie refresh-токена (так в теге) |
-| `JWT_COOKIE_DOMAIN`           | —               | —            | Домен кук (напр. `.example.com`) — чтобы куки были общими для поддоменов гейта и auth-сервиса. Пусто = привязка к текущему хосту |
-| `JWT_ACCESS_SECRET`           | —               | да           | Секрет access-токена (>= 32 симв.) |
-| `JWT_REFRESH_SECRET`          | —               | да           | Секрет refresh-токена (>= 32 симв.) |
-| `JWT_ACCESS_TTL`              | `15m`           | —            | TTL access-токена (>= 1m) |
-| `JWT_REFRESH_TTL`             | `24h`           | —            | TTL refresh-токена (>= 1m, > access TTL) |
+| `YAML_CONFIG_PATH`            | `/etc/auth-proxy/config.yaml` | — | Путь к YAML-конфигу |
+| `ENV`                         | `development`   | —            | `development` / `production` (в production куки получают `Secure`) |
+| `LOG_LEVEL`                   | `debug`         | —            | `debug` / `info` |
+| `SHUTDOWN_TIMEOUT`            | `10s`           | —            | Таймаут graceful shutdown (>= 1s) |
+| `GATEWAY_PORT`                | `5000`          | —            | Порт гейта (1–65535) |
+| `GATEWAY_READ_TIMEOUT`        | `5s`            | —            | Read timeout гейта (>= 1s) |
+| `GATEWAY_WRITE_TIMEOUT`       | `10s`           | —            | Write timeout гейта (>= 1s) |
+| `GATEWAY_BASE_URL`            | `http://localhost:5000` | —    | Внешний адрес гейта |
 | `AUTH_PORT`                   | `6000`          | —            | Порт auth-сервиса (1–65535) |
+| `AUTH_READ_TIMEOUT`           | `5s`            | —            | Read timeout auth-сервиса (>= 1s) |
+| `AUTH_WRITE_TIMEOUT`          | `10s`           | —            | Write timeout auth-сервиса (>= 1s) |
 | `AUTH_BASE_URL`               | —               | да           | Внешний адрес auth-сервиса |
 | `AUTH_ALLOW_ORIGINS`          | —               | —            | CORS: разрешённые origin через запятую (см. «Аутентификация из браузера» ниже). Пусто = `*` без кук |
-| `BCRYPT_COST`                 | `12`            | —            | Стоимость bcrypt (4–31) |
-| `ROLES`                       | `user,admin,superadmin` | —   | Роли через запятую (>= 3, все не пустые) |
+| `SESSION_ACCESS_COOKIE`       | `access_token`  | —            | Имя cookie access-токена |
+| `SESSION_REFRESH_COOKIE`      | `refresh_token` | —            | Имя cookie refresh-токена |
+| `SESSION_COOKIE_DOMAIN`       | —               | —            | Домен кук (напр. `.example.com`) — чтобы куки были общими для поддоменов гейта и auth-сервиса. Пусто = привязка к текущему хосту |
+| `SESSION_ACCESS_SECRET`       | —               | да           | Секрет access-токена (>= 32 симв.) |
+| `SESSION_REFRESH_SECRET`      | —               | да           | Секрет refresh-токена (>= 32 симв.) |
+| `SESSION_ACCESS_TTL`          | `15m`           | —            | TTL access-токена (>= 1m) |
+| `SESSION_REFRESH_TTL`         | `24h`           | —            | TTL refresh-токена (>= 1m, > access TTL) |
+| `ACCESS_ROLES`                | `user,admin,superadmin` | —    | Роли через запятую (>= 3, все не пустые) |
+| `ACCESS_BCRYPT_COST`          | `12`            | —            | Стоимость bcrypt (4–31) |
 
 ### Пример `.env`
 
-```env
-YAML_CONFIG_PATH="./config.yaml"
-
-JWT_ACCESS_COOKIE_KEY=access_token
-JWT_REFRESH_COOKIE_KEY=refresh_token
-JWT_ACCESS_SECRET=supersecret-access-key-32-chars-min
-JWT_REFRESH_SECRET=supersecret-refresh-key-32-chars-min
-JWT_ACCESS_TTL=15m
-JWT_REFRESH_TTL=24h
-
-SERVER_PORT=5000
-SERVER_READ_TIMEOUT=5s
-SERVER_WRITE_TIMEOUT=10s
-
-BCRYPT_COST=12
-
-ROLES=user,admin,superadmin
-```
+См. `internal/config/example.env`.
 
 ---
 
 ## YAML-конфиг
 
 ```yaml
-server:
+env: production
+log_level: info
+shutdown_timeout: 10s
+
+gateway:                 # гейт (прокси)
   port: 5000
   read_timeout: 5s
   write_timeout: 10s
-  shutdown_timeout: 10s
+  base_url: "https://gw.example.com"
+  routes:
+    - prefix: "/api/users"
+      target: "http://users_service:8081"
+      auth_method: jwt
 
-# внешний адрес гейта - на него auth-сервис возвращает пользователя после логина/обновления токена
-gateway:
-  base_url: "http://localhost:5000"
-
-# auth-сервис: второй http-слушатель в том же бинарнике.
-# allow_origins: CORS-разрешённые origin (точные scheme://host[:port]),
-# напр. свои поддомены. Пусто = Access-Control-Allow-Origin: *, без кук.
-# Не пусто = только из списка, с Allow-Credentials: true (куки идут).
-auth:
-  port: 8081
-  base_url: "http://localhost:8081"
+auth:                    # auth-сервис (второй слушатель в том же бинарнике)
+  port: 6000
+  read_timeout: 5s
+  write_timeout: 10s
+  base_url: "https://auth.example.com"
   allow_origins:
-    - "http://localhost:3000"
     - "https://app.example.com"
 
-jwt:
-  access_cookie_key: access_token
-  refresh_cookie_key: refresh_token
-  access_secret: "суперсекретный-access-секрет-min-32-символа---"
-  refresh_secret: "супер-секретный-refresh-секрет-min-32-символа--"
-  access_ttl: 15m
-  refresh_ttl: 24h
+session:                 # общее: auth выдаёт куки с JWT, гейт проверяет
+  cookie:
+    access_name: access_token
+    refresh_name: refresh_token
+    domain: ".example.com"
+  jwt:
+    access_secret: "суперсекретный-access-секрет-min-32-символа---"
+    refresh_secret: "супер-секретный-refresh-секрет-min-32-символа--"
+    access_ttl: 15m
+    refresh_ttl: 24h
 
-bcrypt:
-  cost: 12
-
-roles:
-  - "user"
-  - "admin"
-  - "superadmin"
-
-routes:
-  - prefix: "/api/users"
-    target: "http://users_service:8081"
-    auth_method: jwt
-
-blacklist:
-  - "10.0.0.0/8"
-
-users:
-  - id: 1
-    login: "admin"
-    password: "adminpass"
-    email: "admin@example.com"
-    full_name: "Admin"
-    role: "superadmin"
+access:                  # роли и пользователи
+  roles: ["user", "admin", "superadmin"]
+  bcrypt_cost: 12
+  users:
+    - id: 1
+      login: "admin"
+      password: "adminpass"
+      email: "admin@example.com"
+      full_name: "Admin"
+      role: "superadmin"
 ```
 
 ### Блоки
 
-- **`server`** — порт и таймауты HTTP-сервера.
-- **`gateway`** — внешний адрес гейта (`base_url`): на него auth-сервис редиректит после логина/обновления токена.
-- **`auth`** — порт и внешний адрес auth-сервиса, а также CORS (`allow_origins`) для доступа из браузера (см. «Аутентификация из браузера» ниже) и «Жизненный цикл токенов».
-- **`jwt`** — названия cookie и секреты для access/refresh токенов, их TTL.
-- **`bcrypt`** — стоимость хеширования паролей.
-- **`roles`** — общий список ролей по возрастанию полномочий (слева направо: самая низкая → самая высокая). Используется для «лесенки» ролей в маршрутах.
-- **`blacklist`** — список IP-адресов или CIDR-подсетей, которым доступ закрыт (403).
-- **`routes`** — маршруты шлюза (см. ниже). **Минимум один маршрут обязателен.**
-- **`users`** — базовые пользователи при старте сервиса (см. ниже). Если блок не задан или в нём нет пользователя с самой высокой ролью — автоматически создаётся суперадмин.
+- верхний уровень — `env`, `log_level`, `shutdown_timeout` (общий для обоих слушателей).
+- **`gateway`** — гейт: порт, таймауты, внешний адрес (`base_url`, на него auth-сервис редиректит после логина/обновления токена) и маршруты `routes` (см. ниже). **Минимум один маршрут обязателен.**
+- **`auth`** — auth-сервис: порт, таймауты, внешний адрес и CORS (`allow_origins`) для доступа из браузера (см. «Аутентификация из браузера» ниже).
+- **`session`** — общее для обоих сервисов: `cookie` (имена кук, домен; флаг `Secure` выставляется автоматически при `env: production`) и `jwt` (секреты и TTL токенов).
+- **`access`** — `roles` (общий список ролей по возрастанию полномочий, слева направо: самая низкая → самая высокая; используется для «лесенки» ролей в маршрутах), `bcrypt_cost` и `users` — базовые пользователи (см. ниже). Если в `users` нет пользователя с самой высокой ролью — автоматически создаётся суперадмин.
 
 ### Жизненный цикл токенов
 
@@ -134,7 +109,7 @@ users:
 
 | Слушатель | Порт (по умолчанию)  | Что делает |
 |---|----------------------|---|
-| Гейт (auth-proxy) | `server.port` (5000) | Матчит путь по `routes`, проверяет токены/роли, проксирует запросы |
+| Гейт (auth-proxy) | `gateway.port` (5000) | Матчит путь по `routes`, проверяет токены/роли, проксирует запросы |
 | Auth-сервис | `auth.port` (6000)   | `/login`, `/refresh`, `/logout`, `/user/me`, `/` (профиль) — выдаёт и гасит куки |
 
 Гейт решает, пускать ли запрос, так:
@@ -160,9 +135,9 @@ Auth-сервис отдаёт API-эндпоинты (`/user/me`, `/refresh`, `
 - **`allow_origins` задан** (точные origin, например `https://app.example.com`) — разрешён только перечисленный origin (echo-ится в ответ), `Access-Control-Allow-Credentials: true`, куки ходят. Чужой origin CORS-заголовков не получает — браузер сам заблокирует ответ.
 - Preflight (`OPTIONS` перед `POST`/`fetch` с кастомными заголовками) обрабатывается автоматически: 204 + `Access-Control-Allow-Methods` + echo запрошенных `Access-Control-Allow-Headers`.
 
-Куки при этом должны быть общими для всех поддоменов — задаётся через `jwt.cookie_domain` (например `.example.com`). Без него браузер не отправит куки auth-сервиса с другого поддомена, даже при разрешённом CORS.
+Куки при этом должны быть общими для всех поддоменов — задаётся через `session.cookie.domain` (например `.example.com`). Без него браузер не отправит куки auth-сервиса с другого поддомена, даже при разрешённом CORS.
 
-### Маршрут (`routes[]`)
+### Маршрут (`gateway.routes[]`)
 
 | Поле                   | Тип    | Описание |
 |------------------------|--------|----------|
@@ -247,18 +222,19 @@ routes:
 
 ---
 
-## Пользователи (`users[]`)
+## Пользователи (`access.users[]`)
 
 Базовые пользователи, которые загружаются в кеш при старте сервиса.
 
 ```yaml
-users:
-  - id: 1
-    login: "admin"
-    password: "adminpass"
-    email: "admin@example.com"
-    full_name: "Admin"
-    role: "superadmin"
+access:
+  users:
+    - id: 1
+      login: "admin"
+      password: "adminpass"
+      email: "admin@example.com"
+      full_name: "Admin"
+      role: "superadmin"
 ```
 
 | Поле          | Тип    | Обязательный | Описание |
@@ -272,8 +248,8 @@ users:
 
 Правила:
 
-- **пароль** в YAML указывается в открытом виде и при загрузке конфига заменяется на bcrypt-хеш (в памяти, файл не перезаписывается);
-- из открытого пароля при загрузке также вычисляется готовый заголовок `Authorization: Basic` (для `jwt2basic`-маршрутов); в конфиге/YAML он не фигурирует;
+- **пароль** в YAML указывается в открытом виде и при старте хешируется bcrypt при загрузке в хранилище пользователей (в памяти, файл не перезаписывается);
+- из открытого пароля при старте также вычисляется готовый заголовок `Authorization: Basic` (для `jwt2basic`-маршрутов); в конфиге/YAML он не фигурирует;
 - `login` не короче 4 символов, `password` — от 4 до 72 символов (72 байта — лимит bcrypt);
 - `role` должна быть одной из ролей из `roles`;
 - если в `users` нет ни одного пользователя с **самой высокой** ролью из `roles` (или блок `users` отсутствует вовсе) — автоматически создаётся дефолтный суперадмин:
@@ -287,15 +263,15 @@ users:
 
 1. Парсинг ENV (с дефолтами) → парсинг `.env` → загрузка YAML.
 2. Валидация `validate.Struct(cfg)` — обязательные секреты, диапазоны, типы, поля пользователей.
-3. `validateRoutes` — уникальность префиксов, валидность `required_roles`, построение «лесенки» ролей, проверка ролей пользователей, хеширование паролей, гарантия наличия суперадмина.
-4. `validateBlacklist` — каждый элемент должен быть валидным IP или CIDR.
+3. `validate` — валидность и уникальность префиксов (с учётом `host`), существование `required_roles`, роли пользователей.
+4. `normalize` — `auth_method` по умолчанию, «лесенка» ролей, гарантия наличия суперадмина, `Secure` у кук.
+5. При старте пароли пользователей хешируются (`users.FromConfig`).
 
 Частые ошибки при запуске:
 
 - отсутствует/недоступен `config.yaml` или в нём нет ни одного маршрута;
-- `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` короче 32 символов;
+- `SESSION_ACCESS_SECRET` / `SESSION_REFRESH_SECRET` короче 32 символов;
 - неуникальный `prefix` или неизвестная роль в `required_roles`;
 - `refresh_ttl` не больше `access_ttl`;
-- кривой IP/CIDR в `blacklist`;
 - пользователь с `role`, которой нет в `roles`;
 - `login` короче 4 или `password` короче 4 (или длиннее 72) символов.
