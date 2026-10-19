@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /app
 
 # Версия прошивается в бинарь: docker build --build-arg VERSION=v1.0.0
