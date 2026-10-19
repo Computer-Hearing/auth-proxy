@@ -18,7 +18,10 @@
 (virtual hosting). Поддерживается точное совпадение и wildcard одного уровня (`*.example.com`).
 Если `host` не указан, маршрут подходит под любой host.
 
-Приоритет при равной специфичности префикса: **точный host > wildcard host > пустой host**.
+Сначала выбирается домен, потом путь: **точный host > wildcard host > маршрут без host**,
+и только среди маршрутов этого уровня — самый специфичный `prefix`. Маршруты без `host`
+работают как общий fallback: они срабатывают, если у домена нет своего подходящего маршрута.
+Порядок маршрутов в конфиге важен только при полной ничьей.
 
 ```yaml
 gateway:
@@ -41,6 +44,9 @@ gateway:
 | `grafana.example.com` | wildcard_service (wildcard) |
 | `a.b.example.com` | default_api (wildcard не матчит два уровня) |
 | `other.com` | default_api |
+
+Домен главнее длины префикса: если есть `/**` с `host: grafana.example.com` и общий
+`/api/admin` без host, запрос `grafana.example.com/api/admin` уйдёт в маршрут grafana.
 
 ## Быстрый старт локально
 

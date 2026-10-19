@@ -8,6 +8,7 @@ import (
 	"auth-proxy/internal/tokens"
 	"auth-proxy/internal/users"
 	"auth-proxy/pkg/apierror"
+	"auth-proxy/pkg/hostmatch"
 	"auth-proxy/pkg/httpx"
 	"errors"
 	"fmt"
@@ -92,8 +93,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// путь, по которому определяется маршрут
 	path := r.URL.Path
 
-	// маршрут выбирается один раз: по нему и проверяем доступ, и проксируем
-	rule, ok := g.engine.Match(r.Host, path)
+	// маршрут выбирается один раз: по нему и проверяем доступ, и проксируем.
+	// Host сравниваем без порта и регистра - так же, как auth-сервис для next
+	rule, ok := g.engine.Match(hostmatch.Normalize(r.Host), path)
 	if !ok {
 		g.logger.Debug("Route not found", slog.String("path", path), slog.String("remote", r.RemoteAddr))
 		apierror.HandleAPIError(w, g.logger, apierror.ErrPathNotFound)

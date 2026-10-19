@@ -56,6 +56,10 @@ auth:
   base_url: "http://localhost:6000"
   allow_origins:
     - "http://localhost:3000"
+  # после логина пользователя возвращаем на тот домен, с которого он пришёл.
+  # Разрешены: хост gateway.base_url, host-ы маршрутов и этот список
+  # (для доменов, которые обслуживают маршруты без host). Точные или *.wildcard.
+  allowed_redirect_hosts: []
 
 # общее для обоих сервисов: auth выдаёт куки с JWT, гейт их проверяет
 session:

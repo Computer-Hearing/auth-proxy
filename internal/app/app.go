@@ -6,13 +6,16 @@ import (
 	"auth-proxy/internal/gateway"
 	"auth-proxy/internal/tokens"
 	"auth-proxy/internal/users"
+	"auth-proxy/pkg/hostmatch"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 )
 
@@ -62,12 +65,13 @@ func Run(version string) error {
 
 	// Auth-сервис: /login /refresh /logout /user/me (отдельный порт)
 	authService, err := auth.New(&auth.Options{
-		Logger:       logger.With(slog.String("component", "auth-handler")),
-		Cookie:       cfg.Session.Cookie,
-		AllowOrigins: cfg.Auth.AllowOrigins,
-		GatewayURL:   cfg.Gateway.BaseURL,
-		Tokens:       tokenService,
-		Users:        userStorage,
+		Logger:        logger.With(slog.String("component", "auth-handler")),
+		Cookie:        cfg.Session.Cookie,
+		AllowOrigins:  cfg.Auth.AllowOrigins,
+		GatewayURL:    cfg.Gateway.BaseURL,
+		RedirectHosts: redirectHosts(cfg),
+		Tokens:        tokenService,
+		Users:         userStorage,
 	})
 	if err != nil {
 		return err
@@ -103,6 +107,21 @@ func Run(version string) error {
 		logger.Error("auth shutdown", "error", err.Error())
 	}
 	return serveErr
+}
+
+// redirectHosts - куда auth-сервис может вернуть пользователя после логина:
+// хост gateway.base_url, host-ы маршрутов и auth.allowed_redirect_hosts.
+// Маршруты без host сюда не попадают: они матчат любой Host, и пускать
+// редирект куда угодно нельзя (open redirect).
+func redirectHosts(cfg *config.Config) hostmatch.Set {
+	hosts := slices.Clone(cfg.Auth.AllowedRedirectHosts)
+	if u, err := url.Parse(cfg.Gateway.BaseURL); err == nil {
+		hosts = append(hosts, u.Host)
+	}
+	for _, route := range cfg.Gateway.Routes {
+		hosts = append(hosts, route.Host)
+	}
+	return hostmatch.NewSet(hosts...)
 }
 
 func newServer(port int, timeouts config.Timeouts, handler http.Handler) *http.Server {

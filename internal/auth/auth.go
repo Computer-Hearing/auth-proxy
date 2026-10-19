@@ -7,6 +7,7 @@ import (
 	"auth-proxy/internal/tokens"
 	"auth-proxy/internal/users"
 	"auth-proxy/pkg/apierror"
+	"auth-proxy/pkg/hostmatch"
 	"auth-proxy/pkg/httpx"
 	"errors"
 	"log/slog"
@@ -20,21 +21,26 @@ type Options struct {
 	Logger       *slog.Logger
 	Cookie       config.CookieConfig
 	AllowOrigins []string
-	// GatewayURL - внешний адрес гейта, туда возвращаем пользователя после логина
+	// GatewayURL - внешний адрес гейта, туда возвращаем пользователя после
+	// логина, если next - относительный путь
 	GatewayURL string
-	Tokens     *tokens.Service
-	Users      *users.Storage
+	// RedirectHosts - хосты, на которые можно вернуть пользователя по
+	// абсолютному next (домен, с которого он пришёл на гейт)
+	RedirectHosts hostmatch.Set
+	Tokens        *tokens.Service
+	Users         *users.Storage
 }
 
 // Service - второй http-слушатель в бинарнике (отдельный порт).
 // Занимается жизненным циклом кук: /login /refresh /logout и /user/me.
 type Service struct {
-	logger       *slog.Logger
-	cookie       config.CookieConfig
-	allowOrigins []string
-	gatewayURL   string
-	tokens       *tokens.Service
-	users        *users.Storage
+	logger        *slog.Logger
+	cookie        config.CookieConfig
+	allowOrigins  []string
+	gatewayURL    string
+	redirectHosts hostmatch.Set
+	tokens        *tokens.Service
+	users         *users.Storage
 }
 
 var (
@@ -57,12 +63,13 @@ func New(opts *Options) (*Service, error) {
 		return nil, ErrUsersIsNil
 	}
 	return &Service{
-		logger:       opts.Logger,
-		cookie:       opts.Cookie,
-		allowOrigins: opts.AllowOrigins,
-		gatewayURL:   opts.GatewayURL,
-		tokens:       opts.Tokens,
-		users:        opts.Users,
+		logger:        opts.Logger,
+		cookie:        opts.Cookie,
+		allowOrigins:  opts.AllowOrigins,
+		gatewayURL:    opts.GatewayURL,
+		redirectHosts: opts.RedirectHosts,
+		tokens:        opts.Tokens,
+		users:         opts.Users,
 	}, nil
 }
 
@@ -81,7 +88,7 @@ func (s *Service) Handler() http.Handler {
 
 // handleLogin: GET - HTML-форма, POST - проверка пароля и установка кук.
 func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
-	next := httpx.SafeNext(r.FormValue("next"))
+	next := s.safeNext(r.FormValue("next"))
 
 	switch r.Method {
 	case http.MethodGet:
@@ -120,7 +127,7 @@ func (s *Service) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	next := httpx.SafeNext(r.FormValue("next"))
+	next := s.safeNext(r.FormValue("next"))
 
 	// Refresh-куки нет - сессия завершена, отправляем на логин
 	refreshCookie, err := r.Cookie(s.cookie.RefreshName)
@@ -209,10 +216,20 @@ func (s *Service) issueTokens(w http.ResponseWriter, user *domain.User) error {
 	return nil
 }
 
-// redirectBack возвращает пользователя НА ГЕЙТ: внешний адрес гейта
-// (gatewayURL) + относительный next.
+// safeNext - next, на который безопасно вернуть пользователя:
+// относительный путь или абсолютный URL с разрешённым host.
+func (s *Service) safeNext(next string) string {
+	return httpx.SafeNext(next, s.redirectHosts.Contains)
+}
+
+// redirectBack возвращает пользователя НА ГЕЙТ: абсолютный next (уже
+// проверенный safeNext) - как есть, на тот домен, с которого он пришёл;
+// относительный - на внешний адрес гейта (gatewayURL) + next.
 func (s *Service) redirectBack(w http.ResponseWriter, r *http.Request, next string) {
-	location := strings.TrimSuffix(s.gatewayURL, "/") + next
+	location := next
+	if !httpx.IsAbsolute(next) {
+		location = strings.TrimSuffix(s.gatewayURL, "/") + next
+	}
 	http.Redirect(w, r, location, http.StatusFound)
 }
 

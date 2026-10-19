@@ -4,6 +4,7 @@ import (
 	"auth-proxy/internal/config"
 	"auth-proxy/internal/tokens"
 	"auth-proxy/internal/users"
+	"auth-proxy/pkg/hostmatch"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -25,10 +26,11 @@ func newService(t *testing.T) *Service {
 	storage.Load(context.Background(), list)
 
 	s, err := New(&Options{
-		Cookie:     config.CookieConfig{AccessName: "access_token", RefreshName: "refresh_token"},
-		GatewayURL: "http://gw.local",
-		Tokens:     tokens.New(tokens.Config{SecretKey: "test-secret"}),
-		Users:      storage,
+		Cookie:        config.CookieConfig{AccessName: "access_token", RefreshName: "refresh_token"},
+		GatewayURL:    "http://gw.local",
+		RedirectHosts: hostmatch.NewSet("gw.local", "*.example.com"),
+		Tokens:        tokens.New(tokens.Config{SecretKey: "test-secret"}),
+		Users:         storage,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,5 +89,68 @@ func TestRefresh_InvalidTokenRedirectsToLogin(t *testing.T) {
 
 	if rec.Code != http.StatusFound || !strings.HasPrefix(rec.Header().Get("Location"), "/login?next=") {
 		t.Errorf("got %d Location %q, want redirect to /login", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func login(h http.Handler, next string) *httptest.ResponseRecorder {
+	form := url.Values{"username": {"alice"}, "password": {"secret"}, "next": {next}}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// После логина возвращаем на тот домен, с которого пришли, если он разрешён
+func TestLogin_RedirectsBackToOriginHost(t *testing.T) {
+	h := newService(t).Handler()
+
+	cases := []struct {
+		next string
+		want string
+	}{
+		{"https://grafana.example.com/d/abc?x=1", "https://grafana.example.com/d/abc?x=1"},
+		{"http://gw.local/app", "http://gw.local/app"},
+		{"/app", "http://gw.local/app"},                  // относительный - на gateway.base_url
+		{"https://evil.com/steal", "http://gw.local/"},   // чужой хост
+		{"https://a.b.example.com/", "http://gw.local/"}, // wildcard только на уровень
+		{"https://u@grafana.example.com/", "http://gw.local/"},
+	}
+
+	for _, tc := range cases {
+		rec := login(h, tc.next)
+		if got := rec.Header().Get("Location"); rec.Code != http.StatusFound || got != tc.want {
+			t.Errorf("next %q: got %d Location %q, want %q", tc.next, rec.Code, got, tc.want)
+		}
+	}
+}
+
+func TestRefresh_RedirectsBackToOriginHost(t *testing.T) {
+	h := newService(t).Handler()
+	refresh := cookieValue(login(h, "/"), "refresh_token")
+
+	next := "https://grafana.example.com/d/abc"
+	req := httptest.NewRequest(http.MethodGet, "/refresh?next="+url.QueryEscape(next), nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refresh})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Location"); rec.Code != http.StatusFound || got != next {
+		t.Errorf("got %d Location %q, want %q", rec.Code, got, next)
+	}
+}
+
+// Без refresh-куки уходим на логин, а исходный адрес не теряем
+func TestRefresh_NoCookieKeepsNextForLogin(t *testing.T) {
+	h := newService(t).Handler()
+
+	next := "https://grafana.example.com/d/abc"
+	req := httptest.NewRequest(http.MethodGet, "/refresh?next="+url.QueryEscape(next), nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	want := "/login?next=" + url.QueryEscape(next)
+	if got := rec.Header().Get("Location"); got != want {
+		t.Errorf("Location got %q, want %q", got, want)
 	}
 }

@@ -2,10 +2,12 @@ package ruleengine
 
 import (
 	"auth-proxy/internal/config"
+	"auth-proxy/pkg/hostmatch"
 	"auth-proxy/pkg/routepattern"
+	"cmp"
 	"fmt"
 	"net/http"
-	"strings"
+	"slices"
 )
 
 // Rule - скомпилированный маршрут: настройки из конфига (auth_method,
@@ -14,7 +16,18 @@ type Rule struct {
 	Route    config.RouteConfig
 	Upstream http.Handler
 	pattern  *routepattern.Pattern
+	// host - host маршрута в виде для сравнения (без порта, в нижнем регистре)
+	host string
+	// hostRank - насколько точно маршрут привязан к домену:
+	// точный host > *.wildcard > без host
+	hostRank int
 }
+
+const (
+	rankAnyHost = iota
+	rankWildcardHost
+	rankExactHost
+)
 
 // Builder строит обработчик для маршрута (в гейте - reverseproxy.New).
 type Builder func(route config.RouteConfig) (http.Handler, error)
@@ -37,53 +50,56 @@ func New(routes []config.RouteConfig, build Builder) (*Engine, error) {
 		if err != nil {
 			return nil, fmt.Errorf("route %s: %w", route.Prefix, err)
 		}
-		rules = append(rules, &Rule{Route: route, Upstream: upstream, pattern: pattern})
+		host := hostmatch.Normalize(route.Host)
+		rules = append(rules, &Rule{
+			Route:    route,
+			Upstream: upstream,
+			pattern:  pattern,
+			host:     host,
+			hostRank: hostRank(host),
+		})
 	}
+
+	// Сортируем по приоритету, тогда Match берёт первое совпадение.
+	// Стабильная сортировка: при полной ничьей решает порядок в конфиге.
+	slices.SortStableFunc(rules, func(a, b *Rule) int {
+		return cmp.Or(
+			cmp.Compare(b.hostRank, a.hostRank),
+			cmp.Compare(b.pattern.HeadLen(), a.pattern.HeadLen()),
+			cmp.Compare(b.pattern.PatternLen(), a.pattern.PatternLen()),
+		)
+	})
 	return &Engine{rules: rules}, nil
 }
 
-// Match ищет маршрут по host и пути (самое специфичное совпадение:
-// длиннее литеральная часть, затем длиннее паттерн, затем раньше в конфиге).
-// Первый совпавший маршрут при равной специфичности и есть самый ранний в конфиге.
+func hostRank(host string) int {
+	switch {
+	case host == "":
+		return rankAnyHost
+	case hostmatch.IsWildcard(host):
+		return rankWildcardHost
+	default:
+		return rankExactHost
+	}
+}
+
+// Match ищет маршрут по host и пути. Сначала домен, потом путь:
+//  1. самый точный host: точный > *.wildcard > маршрут без host;
+//  2. среди них самый специфичный префикс: длиннее литеральная часть,
+//     затем длиннее паттерн;
+//  3. при полной ничьей - раньше в конфиге.
+//
+// Если у домена нет маршрута под этот путь, берётся следующий уровень:
+// wildcard, затем маршруты без host (общий fallback).
+// host ожидается уже нормализованным (hostmatch.Normalize).
 func (e *Engine) Match(host, path string) (*Rule, bool) {
-	var best *Rule
-
 	for _, rule := range e.rules {
-		routeHost := rule.Route.Host
-		// Проверяем host (если задан в маршруте)
-		if routeHost != "" && !matchHost(routeHost, host) {
+		if rule.host != "" && !hostmatch.Match(rule.host, host) {
 			continue
 		}
-		if !rule.pattern.Match(path) {
-			continue
-		}
-
-		// Приоритет: более специфичный префикс > точный host > wildcard host > пустой host
-		if best == nil || rule.pattern.MoreSpecific(best.pattern) ||
-			(routeHost != "" && best.Route.Host == "") ||
-			(routeHost != "" && !isWildcard(routeHost) && isWildcard(best.Route.Host)) {
-			best = rule
+		if rule.pattern.Match(path) {
+			return rule, true
 		}
 	}
-
-	return best, best != nil
-}
-
-// matchHost проверяет соответствие host маршрута заголовку Host запроса.
-// Поддерживает wildcard одного уровня: *.example.com матчит grafana.example.com,
-// но не матчит a.b.example.com или example.com.
-func matchHost(routeHost, requestHost string) bool {
-	if isWildcard(routeHost) {
-		base := routeHost[2:] // "example.com"
-		if !strings.HasSuffix(requestHost, "."+base) {
-			return false
-		}
-		subdomain := strings.TrimSuffix(requestHost, "."+base)
-		return subdomain != "" && !strings.Contains(subdomain, ".")
-	}
-	return routeHost == requestHost
-}
-
-func isWildcard(host string) bool {
-	return strings.HasPrefix(host, "*.")
+	return nil, false
 }

@@ -139,28 +139,65 @@ func TestMatch_WildcardHost(t *testing.T) {
 	})
 }
 
-func TestMatchHost_Wildcard(t *testing.T) {
-	cases := []struct {
-		routeHost string
-		reqHost   string
-		want      bool
-	}{
-		{"*.example.com", "grafana.example.com", true},
-		{"*.example.com", "api.example.com", true},
-		{"*.example.com", "a.b.example.com", false},
-		{"*.example.com", "example.com", false},
-		{"*.test.example.com", "grafana.test.example.com", true},
-		{"*.test.example.com", "a.b.test.example.com", false},
-		{"api.example.com", "api.example.com", true},
-		{"api.example.com", "other.example.com", false},
-		{"", "anything.com", false},
-	}
+// Домен главнее префикса, и результат не зависит от порядка в конфиге
+func TestMatch_HostBeatsLongerPrefix(t *testing.T) {
+	hostRoute := config.RouteConfig{Prefix: "/**", Host: "grafana.example.com", Target: "http://grafana"}
+	sharedRoute := config.RouteConfig{Prefix: "/api/admin", Target: "http://admin"}
 
-	for _, tc := range cases {
-		if got := matchHost(tc.routeHost, tc.reqHost); got != tc.want {
-			t.Errorf("matchHost(%q, %q) = %v, want %v", tc.routeHost, tc.reqHost, got, tc.want)
-		}
+	cases := []matchCase{
+		{"grafana.example.com", "/api/admin/x", "http://grafana"},
+		{"other.com", "/api/admin/x", "http://admin"},
 	}
+	checkMatches(t, mustEngine(t, []config.RouteConfig{hostRoute, sharedRoute}), cases)
+	checkMatches(t, mustEngine(t, []config.RouteConfig{sharedRoute, hostRoute}), cases)
+}
+
+func TestMatch_ExactHostBeatsWildcardWithLongerPrefix(t *testing.T) {
+	exact := config.RouteConfig{Prefix: "/", Host: "api.example.com", Target: "http://exact"}
+	wildcard := config.RouteConfig{Prefix: "/api", Host: "*.example.com", Target: "http://wildcard"}
+
+	cases := []matchCase{
+		{"api.example.com", "/api/x", "http://exact"},
+		{"grafana.example.com", "/api/x", "http://wildcard"},
+	}
+	checkMatches(t, mustEngine(t, []config.RouteConfig{exact, wildcard}), cases)
+	checkMatches(t, mustEngine(t, []config.RouteConfig{wildcard, exact}), cases)
+}
+
+// Нет маршрута у домена под этот путь - берём следующий уровень
+func TestMatch_FallbackToLessSpecificHost(t *testing.T) {
+	e := mustEngine(t, []config.RouteConfig{
+		{Prefix: "/api", Host: "api.example.com", Target: "http://exact"},
+		{Prefix: "/files", Host: "*.example.com", Target: "http://wildcard"},
+		{Prefix: "/", Target: "http://default"},
+	})
+
+	checkMatches(t, e, []matchCase{
+		{"api.example.com", "/api/x", "http://exact"},
+		{"api.example.com", "/files/a", "http://wildcard"},
+		{"api.example.com", "/other", "http://default"},
+	})
+}
+
+// При полной ничьей решает порядок в конфиге
+func TestMatch_TieKeepsConfigOrder(t *testing.T) {
+	// одинаковые head и длина паттерна, оба совпадают с путём
+	e := mustEngine(t, []config.RouteConfig{
+		{Prefix: "/a/*/b", Target: "http://first"},
+		{Prefix: "/a/*b/", Target: "http://second"},
+	})
+	checkMatches(t, e, []matchCase{{"", "/a/xb/b", "http://first"}})
+
+	e = mustEngine(t, []config.RouteConfig{
+		{Prefix: "/a/*b/", Target: "http://second"},
+		{Prefix: "/a/*/b", Target: "http://first"},
+	})
+	checkMatches(t, e, []matchCase{{"", "/a/xb/b", "http://second"}})
+}
+
+func TestMatch_RouteHostIsNormalized(t *testing.T) {
+	e := mustEngine(t, []config.RouteConfig{{Prefix: "/", Host: "Grafana.Example.com", Target: "http://grafana"}})
+	checkMatches(t, e, []matchCase{{"grafana.example.com", "/", "http://grafana"}})
 }
 
 func TestNew_Errors(t *testing.T) {

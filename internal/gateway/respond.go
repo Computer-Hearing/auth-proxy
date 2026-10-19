@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"auth-proxy/pkg/apierror"
-	"auth-proxy/pkg/httpx"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -36,10 +35,27 @@ func isHTMLAccept(r *http.Request) bool {
 }
 
 // redirectToAuth редиректит пользователя на страницу auth-сервиса (/login
-// или /refresh) и передаёт в query исходный путь (next), чтобы после входа
-// вернуть его на то же место.
+// или /refresh) и передаёт в query исходный адрес (next) целиком, со схемой
+// и host, чтобы после входа вернуть его на тот же домен и то же место.
+// Проверяет next уже auth-сервис (httpx.SafeNext).
 func (g *Gateway) redirectToAuth(w http.ResponseWriter, r *http.Request, page string) {
-	next := httpx.SafeNext(r.URL.RequestURI())
-	redirectURL := g.authURL + "/" + page + "?next=" + url.QueryEscape(next)
+	redirectURL := g.authURL + "/" + page + "?next=" + url.QueryEscape(requestURL(r))
 	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+// requestURL - исходный адрес запроса так, как его видел браузер.
+// За TLS-терминацией (Caddy/nginx) схему берём из X-Forwarded-Proto.
+func requestURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		// может прийти списком через цепочку прокси: "https, http"
+		proto, _, _ = strings.Cut(proto, ",")
+		if proto = strings.ToLower(strings.TrimSpace(proto)); proto == "http" || proto == "https" {
+			scheme = proto
+		}
+	}
+	return scheme + "://" + r.Host + r.URL.RequestURI()
 }

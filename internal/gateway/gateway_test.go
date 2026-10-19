@@ -6,6 +6,7 @@ import (
 	"auth-proxy/internal/users"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,12 @@ func TestServeHTTP_AuthAndProxyUseSameRoute(t *testing.T) {
 		t.Errorf("admin.example.com/api: got %d Location %q, want redirect to login", rec.Code, rec.Header().Get("Location"))
 	}
 
+	// host с портом и в другом регистре - тот же маршрут
+	rec = serveHost(g, "Admin.Example.com:5000", "/api")
+	if rec.Code != http.StatusFound {
+		t.Errorf("Admin.Example.com:5000/api: got %d, want redirect to login", rec.Code)
+	}
+
 	// wildcard-host маршрут проксируется, а не отдаёт 404
 	if rec := serveHost(g, "grafana.example.com", "/files"); rec.Code != http.StatusOK || rec.Body.String() != "wildcard" {
 		t.Errorf("grafana.example.com/files: got %d %q, want 200 wildcard", rec.Code, rec.Body.String())
@@ -77,5 +84,38 @@ func TestServeHTTP_RouteNotFound(t *testing.T) {
 	g := newGateway(t, []config.RouteConfig{{Prefix: "/api", Target: "http://x", AuthMethod: config.AuthNone}})
 	if rec := serveHost(g, "any", "/nope"); rec.Code != http.StatusNotFound {
 		t.Errorf("got %d, want 404", rec.Code)
+	}
+}
+
+// next - полный адрес запроса со схемой и host, чтобы auth вернул на тот же домен
+func TestServeHTTP_RedirectKeepsHostInNext(t *testing.T) {
+	g := newGateway(t, []config.RouteConfig{
+		{Prefix: "/", Host: "*.example.com", Target: "http://x", AuthMethod: config.AuthJWT,
+			RequiredRoles: []string{"user"}},
+	})
+
+	cases := []struct {
+		name      string
+		forwarded string
+		wantNext  string
+	}{
+		{"plain http", "", "http://grafana.example.com/d/abc?x=1"},
+		{"behind tls proxy", "https", "https://grafana.example.com/d/abc?x=1"},
+		{"proxy chain", "https, http", "https://grafana.example.com/d/abc?x=1"},
+		{"garbage proto ignored", "javascript", "http://grafana.example.com/d/abc?x=1"},
+	}
+
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, "http://grafana.example.com/d/abc?x=1", nil)
+		if tc.forwarded != "" {
+			req.Header.Set("X-Forwarded-Proto", tc.forwarded)
+		}
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, req)
+
+		want := "http://auth.local/login?next=" + url.QueryEscape(tc.wantNext)
+		if got := rec.Header().Get("Location"); got != want {
+			t.Errorf("%s: Location got %q, want %q", tc.name, got, want)
+		}
 	}
 }

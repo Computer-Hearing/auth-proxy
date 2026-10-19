@@ -11,4 +11,8 @@ type AuthConfig struct {
 	// Пусто = полностью открыто: Access-Control-Allow-Origin: * и Allow-Credentials: false.
 	// Не пусто = только перечисленные origin и Allow-Credentials: true.
 	AllowOrigins []string `yaml:"allow_origins" env:"AUTH_ALLOW_ORIGINS" validate:"omitempty,dive,url"`
+	// AllowedRedirectHosts - куда ещё (кроме хоста gateway.base_url и host-ов
+	// маршрутов) можно вернуть пользователя после логина. Точные хосты или
+	// *.wildcard; нужно для доменов, которые обслуживают маршруты без host.
+	AllowedRedirectHosts []string `yaml:"allowed_redirect_hosts" env:"AUTH_ALLOWED_REDIRECT_HOSTS" validate:"dive,required"`
 }

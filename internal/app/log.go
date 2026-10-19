@@ -37,6 +37,8 @@ func printConfig(logger *slog.Logger, cfg *config.Config, version string) {
 			"write_timeout": cfg.Auth.Timeouts.WriteTimeout.String(),
 			"base_url":      cfg.Auth.BaseURL,
 			"allow_origins": cfg.Auth.AllowOrigins,
+			// куда можно вернуть пользователя после логина по абсолютному next
+			"redirect_hosts": redirectHosts(cfg).Patterns(),
 		},
 		"session": map[string]interface{}{
 			"access_cookie":  cfg.Session.Cookie.AccessName,
