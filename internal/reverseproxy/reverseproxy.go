@@ -16,7 +16,7 @@ const redirectStatus = http.StatusFound
 // New строит обработчик одного маршрута: реверс-прокси на target или,
 // при route.Redirect, 302 на target + путь запроса. Маршрут уже выбран
 // (ruleengine), здесь только отправка запроса.
-// logger - куда писать транспортные ошибки прокси (502); nil = slog.Default().
+// logger - куда писать транспортные ошибки прокси (502);
 func New(route config.RouteConfig, logger *slog.Logger) (http.Handler, error) {
 	if logger == nil {
 		logger = slog.Default()
