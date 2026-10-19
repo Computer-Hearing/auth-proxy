@@ -1,7 +1,7 @@
 package apierror
 
 import (
-	"auth-proxy/pkg"
+	"auth-proxy/pkg/httpx"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,14 +14,6 @@ var (
 	ErrPathNotFound error = APIError{
 		StatusCode: http.StatusNotFound,
 		Message:    "path not found in config",
-	}
-	ErrIPIsInvalid error = APIError{
-		StatusCode: http.StatusBadRequest,
-		Message:    "ip is invalid",
-	}
-	ErrBlacklistedIP error = APIError{
-		StatusCode: http.StatusForbidden,
-		Message:    "ip is blacklisted",
 	}
 	// ErrUnauthorized - нет токена или он невалидной (клиент не вошёл)
 	ErrUnauthorized error = APIError{
@@ -71,8 +63,8 @@ func (e APIError) stringDetails() string {
 
 func HandleAPIError(w http.ResponseWriter, logger *slog.Logger, err error) {
 	if errApi, ok := errors.AsType[APIError](err); ok {
-		pkg.SendError(logger, w, &errApi, errApi.StatusCode)
+		httpx.SendError(logger, w, &errApi, errApi.StatusCode)
 		return
 	}
-	pkg.SendError(logger, w, err, http.StatusInternalServerError)
+	httpx.SendError(logger, w, err, http.StatusInternalServerError)
 }

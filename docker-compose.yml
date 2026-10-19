@@ -9,7 +9,7 @@ services:
     image: auth-proxy:dev
     environment:
       ENV: development
-      SERVER_PORT: "5000"
+      GATEWAY_PORT: "5000"
     volumes:
       - ./config.yaml:/etc/auth-proxy/config.yaml:ro
     ports:
@@ -21,3 +21,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    networks:
+      - tool-net
+networks:
+  tool-net:
+    external: true

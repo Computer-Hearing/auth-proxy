@@ -3,10 +3,10 @@
 Прокси-шлюз с авторизацией и проверкой ролей на маршрутах.
 Один бинарник поднимает два HTTP-слушателя:
 
-- **gateway-сервис** (`server.port`, по умолчанию 5000) — проксирует трафик после проверки доступа;
+- **gateway-сервис** (`gateway.port`, по умолчанию 5000) — проксирует трафик после проверки доступа;
 - **auth-сервис** (`auth.port`, по умолчанию 6000) — `/login`, `/refresh`, `/logout`, `/user/me`, `/` (профиль).
 
-Для каждого маршрута (`routes[]`) задаётся `auth_method`: `jwt` (куки, по умолчанию),
+Для каждого маршрута (`gateway.routes[]`) задаётся `auth_method`: `jwt` (куки, по умолчанию),
 `basic` (Login/Password из `Authorization: Basic`, например, для CLI MLflow), `jwt2basic`
 (принимаем JWT-куки, бэкенду подставляем `Authorization: Basic`) или `none`
 (маршрут открыт). Роль для `jwt`/`jwt2basic`/`basic` проверяется через `required_roles`.
@@ -18,20 +18,24 @@
 (virtual hosting). Поддерживается точное совпадение и wildcard одного уровня (`*.example.com`).
 Если `host` не указан, маршрут подходит под любой host.
 
-Приоритет при равной специфичности префикса: **точный host > wildcard host > пустой host**.
+Сначала выбирается домен, потом путь: **точный host > wildcard host > маршрут без host**,
+и только среди маршрутов этого уровня — самый специфичный `prefix`. Маршруты без `host`
+работают как общий fallback: они срабатывают, если у домена нет своего подходящего маршрута.
+Порядок маршрутов в конфиге важен только при полной ничьей.
 
 ```yaml
-routes:
-  - prefix: "/api"
-    host: "api.example.com"
-    target: "http://api_service:8085"
+gateway:
+  routes:
+    - prefix: "/api"
+      host: "api.example.com"
+      target: "http://api_service:8085"
 
-  - prefix: "/api"
-    host: "*.example.com"
-    target: "http://wildcard_service:8086"
+    - prefix: "/api"
+      host: "*.example.com"
+      target: "http://wildcard_service:8086"
 
-  - prefix: "/api"
-    target: "http://default_api:8080"
+    - prefix: "/api"
+      target: "http://default_api:8080"
 ```
 
 | Запрос `Host` | Маршрут |
@@ -41,13 +45,16 @@ routes:
 | `a.b.example.com` | default_api (wildcard не матчит два уровня) |
 | `other.com` | default_api |
 
+Домен главнее длины префикса: если есть `/**` с `host: grafana.example.com` и общий
+`/api/admin` без host, запрос `grafana.example.com/api/admin` уйдёт в маршрут grafana.
+
 ## Быстрый старт локально
 
 ```bash
 cp internal/config/example.config.yaml config.yaml
 cp internal/config/example.env .env
-# прописать свои JWT-секреты в .env и секреты пользователей в config.yaml
-go run ./cmd/proxy
+# прописать свои JWT-секреты (session.jwt) и пользователей (access.users) в config.yaml
+go run ./cmd/auth-proxy
 ```
 
 Конфиг = `YAML_CONFIG_PATH` (по умолчанию `./config.yaml`) + переменные окружения + дефолты.
@@ -74,8 +81,8 @@ auth-сервиса публикуются как 5000/6000.
 | `ENV=production` | включает `Secure` у кук — браузер сохранит их только по HTTPS |
 | `GATEWAY_BASE_URL`, `AUTH_BASE_URL` | внешние адреса (домены), а не `localhost` — редиректы после логина |
 | HTTPS перед обоими портами | терминация TLS (nginx/traefik/swarm ingress), иначе `Secure`-куки не сохранятся |
-| свои `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (≥32 символа) | в `config.yaml` или ENV; держать в секрете |
-| `JWT_COOKIE_DOMAIN` (напр. `.example.com`) | когда гейт и auth-сервис на разных поддоменах: кука должна жить на общем домене, иначе её не увидит второй поддомен |
+| свои `SESSION_ACCESS_SECRET`/`SESSION_REFRESH_SECRET` (≥32 символа) | в `config.yaml` (`session.jwt`) или ENV; держать в секрете |
+| `SESSION_COOKIE_DOMAIN` (напр. `.example.com`) | когда гейт и auth-сервис на разных поддоменах: кука должна жить на общем домене, иначе её не увидит второй поддомен |
 | `AUTH_ALLOW_ORIGINS` (напр. `https://app.example.com`) | CORS для auth-сервиса: точные origin фронтендов, обращающихся к `/user/me` через `fetch`. Пусто = `*` без кук |
 
 ### Проверка живости
