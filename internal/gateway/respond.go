@@ -18,7 +18,7 @@ func (g *Gateway) requireBasicAuth(w http.ResponseWriter, r *http.Request, usern
 
 // denyAccess - 403 при недостаточной роли. Браузеру (Accept: text/html)
 // редиректим на профиль auth-сервиса с error=forbidden, чтобы пользователь
-// мог разлогиниться на главной странице. API/скриптам отвечаем JSON как раньше.
+// мог разлогиниться на главной странице. API/скриптам отвечаем JSON.
 func (g *Gateway) denyAccess(w http.ResponseWriter, r *http.Request, role string) {
 	if isHTMLAccept(r) {
 		redirectURL := g.authURL + "/?error=forbidden&role=" + url.QueryEscape(role)
