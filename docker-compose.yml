@@ -21,3 +21,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    networks:
+      - tool-net
+networks:
+  tool-net:
+    external: true
