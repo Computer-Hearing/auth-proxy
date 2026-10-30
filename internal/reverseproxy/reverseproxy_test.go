@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -129,8 +130,37 @@ func TestProxy_UnreachableTarget(t *testing.T) {
 	backend.Close() // таргет недоступен
 
 	h := mustNew(t, config.RouteConfig{Prefix: "/api", Target: backend.URL})
-	if rec := serve(h, "/api"); rec.Code != http.StatusBadGateway {
+	rec := serve(h, "/api")
+	if rec.Code != http.StatusBadGateway {
 		t.Errorf("got code %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type got %q, want application/json", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "target service unreachable") {
+		t.Errorf("body got %q, want JSON error", rec.Body.String())
+	}
+}
+
+func TestProxy_UnreachableTarget_HTML(t *testing.T) {
+	backend := startBackend(t, http.NotFoundHandler())
+	backend.Close() // таргет недоступен
+
+	h := mustNew(t, config.RouteConfig{Prefix: "/api", Target: backend.URL})
+
+	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/api", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("got code %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type got %q, want text/html", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "502") {
+		t.Error("body should contain the 502 error page")
 	}
 }
 
