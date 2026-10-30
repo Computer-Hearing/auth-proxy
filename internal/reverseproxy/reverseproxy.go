@@ -3,6 +3,7 @@ package reverseproxy
 import (
 	"auth-proxy/internal/config"
 	"auth-proxy/pkg/httpx"
+	_ "embed"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 )
 
 const redirectStatus = http.StatusFound
+
+var ErrUnreachable = errors.New("target service unreachable")
 
 // New строит обработчик одного маршрута: реверс-прокси на target или,
 // при route.Redirect, 302 на target + путь запроса. Маршрут уже выбран
@@ -50,6 +53,7 @@ func newProxy(target *url.URL, stripFirst bool, logger *slog.Logger) *httputil.R
 		// EOF, таймаут и т.п.) и отвечает 502. Без него ReverseProxy глушит ошибку
 		// дефолтным http.Error, а причина теряется (классический случай - молчаливый
 		// 502 на бэкенд, который не поднялся).
+		// Браузеру (Accept: text/html) отдаём HTML-страницу, остальным - JSON.
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Error("reverse proxy: target service unreachable",
 				slog.String("method", r.Method),
@@ -58,9 +62,26 @@ func newProxy(target *url.URL, stripFirst bool, logger *slog.Logger) *httputil.R
 				slog.String("request_id", r.Header.Get("X-Request-ID")),
 				slog.String("error", err.Error()),
 			)
-			httpx.SendError(logger, w, errors.New("target service unreachable"), http.StatusBadGateway)
+
+			// если пользователь может html принять, то отдаем ошибку 502 в виде html
+			// если нет, то json просто
+			if acceptsHTML(r) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusBadGateway)
+				if _, werr := w.Write([]byte(errorFrom)); werr != nil {
+					logger.Error("reverse proxy: write html error page", slog.String("error", werr.Error()))
+				}
+				return
+			}
+
+			httpx.SendError(logger, w, ErrUnreachable, http.StatusBadGateway)
 		},
 	}
+}
+
+// acceptsHTML сообщает, хочет ли клиент HTML (браузер), а не JSON.
+func acceptsHTML(r *http.Request) bool {
+	return strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html")
 }
 
 // redirectHandler отдает 302 на target + путь запроса (при stripFirst - без первого сегмента)
@@ -98,3 +119,6 @@ func joinPaths(base, sub string) string {
 	}
 	return strings.TrimSuffix(base, "/") + "/" + strings.TrimPrefix(sub, "/")
 }
+
+//go:embed 502.html
+var errorFrom string
