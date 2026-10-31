@@ -1,293 +1,176 @@
 # Конфигурация auth-proxy
 
-Конфиг собирается из трёх источников в следующем порядке (**каждый следующий перекрывает предыдущий**):
+Конфиг состоит из двух файлов:
 
-1. **ENV-переменные** — парсятся библиотекой `caarlos0/env/v11`, со значениями по умолчанию из тегов `envDefault`.
-2. **`.env` файл** — если есть в рабочей директории, загружается через `godotenv`. Уже заданные переменные окружения он **не перезаписывает**.
-3. **YAML-файл** — путь берётся из `YAML_CONFIG_PATH` (по умолчанию `config.yaml`). Явно указанные в YAML значения перекрывают ENV.
+1. **`gateway.yaml`** — статика (порты, таймауты, Authentik, путь к routes).
+   Источники: ENV (с дефолтами) → `.env` → YAML. YAML перекрывает ENV.
+2. **`routes.yaml`** — динамика (роли + маршруты). Читается по пути `routes_file`
+   и переписывается админкой.
 
-После загрузки конфиг проходит валидацию (`go-playground/validator`, проверка маршрутов и пользователей), затем достраиваются значения по умолчанию. При ошибке загрузки/валидации `config.Load()` возвращает ошибку.
+Путь к `gateway.yaml` — `YAML_CONFIG_PATH` (по умолчанию `/etc/auth-proxy/gateway.yaml`).
+Отсутствие любого файла — ошибка запуска.
 
-Готовая в разработке копия: `internal/config/example.env` и `internal/config/example.config.yaml`.
-
----
-
-## ENV-переменные
-
-Загружаются до YAML, поэтому YAML имеет приоритет.
-
-| Переменная                    | По умолчанию    | Обязательная | Описание |
-|-------------------------------|-----------------|--------------|----------|
-| `YAML_CONFIG_PATH`            | `/etc/auth-proxy/config.yaml` | — | Путь к YAML-конфигу |
-| `ENV`                         | `development`   | —            | `development` / `production` (в production куки получают `Secure`) |
-| `LOG_LEVEL`                   | `debug`         | —            | `debug` / `info` |
-| `SHUTDOWN_TIMEOUT`            | `10s`           | —            | Таймаут graceful shutdown (>= 1s) |
-| `GATEWAY_PORT`                | `5000`          | —            | Порт гейта (1–65535) |
-| `GATEWAY_READ_TIMEOUT`        | `5s`            | —            | Read timeout гейта (>= 1s) |
-| `GATEWAY_WRITE_TIMEOUT`       | `10s`           | —            | Write timeout гейта (>= 1s) |
-| `GATEWAY_BASE_URL`            | `http://localhost:5000` | —    | Внешний адрес гейта |
-| `AUTH_PORT`                   | `6000`          | —            | Порт auth-сервиса (1–65535) |
-| `AUTH_READ_TIMEOUT`           | `5s`            | —            | Read timeout auth-сервиса (>= 1s) |
-| `AUTH_WRITE_TIMEOUT`          | `10s`           | —            | Write timeout auth-сервиса (>= 1s) |
-| `AUTH_BASE_URL`               | —               | да           | Внешний адрес auth-сервиса |
-| `AUTH_ALLOW_ORIGINS`          | —               | —            | CORS: разрешённые origin через запятую (см. «Аутентификация из браузера» ниже). Пусто = `*` без кук |
-| `AUTH_ALLOWED_REDIRECT_HOSTS` | —               | —            | Куда ещё можно вернуть пользователя после логина (через запятую, точные или `*.wildcard`), см. «Возврат после логина» |
-| `SESSION_ACCESS_COOKIE`       | `access_token`  | —            | Имя cookie access-токена |
-| `SESSION_REFRESH_COOKIE`      | `refresh_token` | —            | Имя cookie refresh-токена |
-| `SESSION_COOKIE_DOMAIN`       | —               | —            | Домен кук (напр. `.example.com`) — чтобы куки были общими для поддоменов гейта и auth-сервиса. Пусто = привязка к текущему хосту |
-| `SESSION_ACCESS_SECRET`       | —               | да           | Секрет access-токена (>= 32 симв.) |
-| `SESSION_REFRESH_SECRET`      | —               | да           | Секрет refresh-токена (>= 32 симв.) |
-| `SESSION_ACCESS_TTL`          | `15m`           | —            | TTL access-токена (>= 1m) |
-| `SESSION_REFRESH_TTL`         | `24h`           | —            | TTL refresh-токена (>= 1m, > access TTL) |
-| `ACCESS_ROLES`                | `user,admin,superadmin` | —    | Роли через запятую (>= 3, все не пустые) |
-| `ACCESS_BCRYPT_COST`          | `12`            | —            | Стоимость bcrypt (4–31) |
-
-### Пример `.env`
-
-См. `internal/config/example.env`.
+Примеры: `example.gateway.yaml`, `example.routes.yaml`, `example.env`.
 
 ---
 
-## YAML-конфиг
+## `gateway.yaml`
 
 ```yaml
-env: production
 log_level: info
 shutdown_timeout: 10s
 
-gateway:                 # гейт (прокси)
+server:
   port: 5000
   read_timeout: 5s
   write_timeout: 10s
-  base_url: "https://gw.example.com"
-  routes:
-    - prefix: "/api/users"
-      target: "http://users_service:8081"
-      auth_method: jwt
 
-auth:                    # auth-сервис (второй слушатель в том же бинарнике)
-  port: 6000
+admin:
+  port: 7000
   read_timeout: 5s
   write_timeout: 10s
-  base_url: "https://auth.example.com"
-  allow_origins:
-    - "https://app.example.com"
-  allowed_redirect_hosts:
-    - "portal.example.com"
 
-session:                 # общее: auth выдаёт куки с JWT, гейт проверяет
-  cookie:
-    access_name: access_token
-    refresh_name: refresh_token
-    domain: ".example.com"
-  jwt:
-    access_secret: "суперсекретный-access-секрет-min-32-символа---"
-    refresh_secret: "супер-секретный-refresh-секрет-min-32-символа--"
-    access_ttl: 15m
-    refresh_ttl: 24h
+authentik:
+  secret_header: "X-Proxy-Secret"
+  secret: ""
 
-access:                  # роли и пользователи
-  roles: ["user", "admin", "superadmin"]
-  bcrypt_cost: 12
-  users:
-    - id: 1
-      login: "admin"
-      password: "adminpass"
-      email: "admin@example.com"
-      full_name: "Admin"
-      role: "superadmin"
+routes_file: "/etc/auth-proxy/routes.yaml"
 ```
 
-### Блоки
+| Поле | ENV | По умолчанию | Описание |
+|---|---|---|---|
+| `log_level` | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `shutdown_timeout` | `SHUTDOWN_TIMEOUT` | `10s` | таймаут graceful shutdown (≥ 1s) |
+| `server.port` | `SERVER_PORT` | `5000` | основной слушатель |
+| `server.read_timeout` | `SERVER_READ_TIMEOUT` | `5s` | |
+| `server.write_timeout` | `SERVER_WRITE_TIMEOUT` | `10s` | |
+| `admin.port` | `ADMIN_PORT` | `7000` | админка (статика + API) |
+| `admin.read_timeout` | `ADMIN_READ_TIMEOUT` | `5s` | |
+| `admin.write_timeout` | `ADMIN_WRITE_TIMEOUT` | `10s` | |
+| `authentik.secret_header` | `AUTHENTIK_SECRET_HEADER` | `X-Proxy-Secret` | имя заголовка секрета |
+| `authentik.secret` | `AUTHENTIK_SECRET` | — | значение секрета (пока не проверяется) |
+| `routes_file` | `ROUTES_FILE` | `/etc/auth-proxy/routes.yaml` | путь к динамике |
 
-- верхний уровень — `env`, `log_level`, `shutdown_timeout` (общий для обоих слушателей).
-- **`gateway`** — гейт: порт, таймауты, внешний адрес (`base_url`, на него auth-сервис редиректит после логина/обновления токена) и маршруты `routes` (см. ниже). **Минимум один маршрут обязателен.**
-- **`auth`** — auth-сервис: порт, таймауты, внешний адрес, CORS (`allow_origins`) для доступа из браузера (см. «Аутентификация из браузера» ниже) и `allowed_redirect_hosts` (см. «Возврат после логина»).
-- **`session`** — общее для обоих сервисов: `cookie` (имена кук, домен; флаг `Secure` выставляется автоматически при `env: production`) и `jwt` (секреты и TTL токенов).
-- **`access`** — `roles` (общий список ролей по возрастанию полномочий, слева направо: самая низкая → самая высокая; используется для «лесенки» ролей в маршрутах), `bcrypt_cost` и `users` — базовые пользователи (см. ниже). Если в `users` нет пользователя с самой высокой ролью — автоматически создаётся суперадмин.
+---
 
-### Жизненный цикл токенов
-
-Один бинарник поднимает **два HTTP-слушателя**:
-
-| Слушатель | Порт (по умолчанию)  | Что делает |
-|---|----------------------|---|
-| Гейт (auth-proxy) | `gateway.port` (5000) | Матчит путь по `routes`, проверяет токены/роли, проксирует запросы |
-| Auth-сервис | `auth.port` (6000)   | `/login`, `/refresh`, `/logout`, `/user/me`, `/` (профиль) — выдаёт и гасит куки |
-
-Гейт решает, пускать ли запрос, так:
-
-- кук нет совсем → `302` на `auth.base_url/login?next=<исходный адрес>`;
-- access-куки нет, refresh есть → `302` на `auth.base_url/refresh?next=<исходный адрес>`;
-- access истёк (+refresh есть) → `/refresh`, (refresh нет) → `/login`;
-- access невалиден по подписи (подмена токена) → `/login`;
-- access валиден, но роль не подходит → для API `403 Forbidden` (JSON); для браузера (Accept: `text/html`) — редирект на `/` auth-сервиса с `?error=forbidden&role=<роль>`;
-- access валиден и роль подходит → проксирование.
-
-На `/` auth-сервиса живёт главная страница-профиль: залогиненному пользователю видно логин/роль/email и кнопку «Выйти» (`/logout`), анонимному — предложение пройти на `/login`. Та же страница показывает баннер ошибки после 403 (`?error=forbidden`) и позволяет выйти из-под неподходящей учётки.
-
-`/logout` гасит **обе** куки и отвечает `204 No Content` без редиректа: вызвавшая сторона (форма или `fetch`) сама решает, что показать после выхода.
-
-### Возврат после логина (`next`)
-
-`next` — исходный адрес запроса **целиком**, со схемой и host: `https://grafana.example.com/d/abc?x=1`. Схема берётся из `X-Forwarded-Proto` (TLS обычно терминирует прокси перед гейтом, например Caddy), иначе `http`/`https` по самому соединению. После логина/обновления токена auth-сервис возвращает пользователя ровно туда — на тот же домен, с которого он пришёл.
-
-Защита от open redirect (`httpx.SafeNext`):
-
-- относительный путь (`/app`) — как раньше, редирект на `gateway.base_url + next`;
-- абсолютный URL принимается только со схемой `http`/`https`, без `user@` и только если host разрешён. Разрешены: хост `gateway.base_url`, `host` всех маршрутов (включая `*.wildcard`) и `auth.allowed_redirect_hosts`;
-- всё остальное — редирект на `gateway.base_url + /`.
-
-Маршруты **без** `host` в список не попадают: они матчат любой Host, и разрешить по ним редирект означало бы пускать куда угодно. Если такой маршрут обслуживает конкретный домен — добавьте домен в `auth.allowed_redirect_hosts`.
-
-Чтобы после возврата на другой поддомен пользователь остался залогинен, куки должны быть общими: `session.cookie.domain: ".example.com"`. Совсем разные корневые домены (`a.com` и `b.org`) так не работают — общая кука невозможна.
-
-### Аутентификация из браузера (CORS)
-
-Auth-сервис отдаёт API-эндпоинты (`/user/me`, `/refresh`, `/logout`, `/login`). Фронтенд на другом домене/поддомене обращается к ним через `fetch` — такие кросс-доменные запросы регулируются CORS (`auth.allow_origins`):
-
-- **`allow_origins` не задан** — auth-сервис открыт нараспашку: отвечает `Access-Control-Allow-Origin: *` и `Access-Control-Allow-Credentials: false`. Работает для простых GET-запросов без кук, но браузер **не передаст куки** и не покажет их в ответе.
-- **`allow_origins` задан** (точные origin, например `https://app.example.com`) — разрешён только перечисленный origin (echo-ится в ответ), `Access-Control-Allow-Credentials: true`, куки ходят. Чужой origin CORS-заголовков не получает — браузер сам заблокирует ответ.
-- Preflight (`OPTIONS` перед `POST`/`fetch` с кастомными заголовками) обрабатывается автоматически: 204 + `Access-Control-Allow-Methods` + echo запрошенных `Access-Control-Allow-Headers`.
-
-Куки при этом должны быть общими для всех поддоменов — задаётся через `session.cookie.domain` (например `.example.com`). Без него браузер не отправит куки auth-сервиса с другого поддомена, даже при разрешённом CORS.
-
-### Маршрут (`gateway.routes[]`)
-
-| Поле                   | Тип    | Описание |
-|------------------------|--------|----------|
-| `prefix`               | string | Путь, который перехватывает шлюз. Может содержать wildcard `*` / `**` (см. ниже). Обязателен, точные дубликаты строк не допускаются. |
-| `target`               | string | Куда проксировать/редиректить (валидный URL). Обязателен. |
-| `auth_method`          | string | Способ аутентификации: `jwt` (по умолчанию), `basic`, `jwt2basic`, `none`. |
-| `redirect`             | bool   | `true` — вместо проксирования вернуть 302 на `target` + путь запроса. |
-| `strip_first_prefix`   | bool   | `true` — убрать первый сегмент пути запроса: `/inference/api/v1` → `/api/v1`. |
-| `required_roles`       | []string | Минимальная роль для доступа. Автоматически расширяется на все роли «выше» из `roles`. |
-
-#### Способ аутентификации (`auth_method`)
-
-- `jwt` (по умолчанию, если поле не указано) — проверка access/refresh кук и роли из токена (см. «Жизненный цикл токенов»).
-- `basic` — проверка `login:password` из HTTP-заголовка `Authorization: Basic` по кешу пользователей. Пользователь берётся из `users`, пароль сверяется с BCrypt-хешем. При неверных/отсутствующих кредах — `401` + `WWW-Authenticate: Basic realm="AUTH-PROXY"`, чтобы клиент показал диалог входа. Роль проверяется через `required_roles`, как и для `jwt`. Подходит для CLI/клиентов, которые не умеют куки-JWT (например, MLflow).
-- `jwt2basic` — как `jwt` (проверка кук и роли), но перед проксированием в бэкенд подставляется заголовок `Authorization: Basic base64(login:password)`. Строка формируется один раз при загрузке конфига, из открытого пароля пользователя, и хранится в памяти; сам пароль в рантайме не нужен. Нужно, чтобы браузер с JWT-куками не получал нативной Basic-формы бэкенда (обычно это MLflow). Креды в `users` должны совпадать с теми, что настроены в бэкенде.
-- `none` — маршрут открыт без какой-либо проверки (замена прежнего `skip_auth: true`).
-
-#### Wildcard в `prefix`
-
-В `prefix` можно использовать `*` и `**`:
-
-- `*` — любой один сегмент пути (не пересекает `/`): `/api/*/v1` ловит `/api/x/v1`, но не `/api/x/y/v1` и не `/api/v1`;
-- `**` — любое число сегментов (включая ноль): `/static/**` ловит `/static/a/b`, но не `/static` (нужен сегмент после слеша);
-- `*` и `**` действуют как *префикс*: хвост пути после совпадения не важен (`/api/*/v1` ловит `/api/x/v1/anything`), как у литеральных префиксов.
-
-При совпадении нескольких маршрутов выбор идёт так:
-1. самый точный `host`: точный > `*.wildcard` > маршрут без `host` (если у домена нет маршрута под этот путь — берётся следующий уровень);
-2. среди них — длиннее литеральная часть до первой `*`;
-3. при равенстве — длиннее паттерн;
-4. при равенстве — раньше в конфиге.
-
-Литеральный `/api/orders` всегда победит `/api/*` для `/api/orders/5`.
-
-Пример — статика открыта без авторизации через `auth_method: none`:
+## `routes.yaml`
 
 ```yaml
-routes:
-  - prefix: "/static/**"
-    target: "http://static_service:8080"
-    auth_method: none
-    strip_first_prefix: true   # /static/app.js -> backend /app.js
-```
-
-#### Как работает `prefix` + `strip_first_prefix`
-
-- Запрос `/inference/api/v1` перехватывается маршрутом с `prefix: "/inference"`.
-- По умолчанию полный путь идёт к `target`: бэкенд получает `/inference/api/v1` (или редирект идёт на `target + /inference/api/v1`).
-- При `strip_first_prefix: true` первый сегмент убирается: на бэкенд/в редирект уходит `/api/v1`.
-
-#### Как работает `redirect`
-
-`redirect: true` — маршрут не проксирует, а отвечает HTTP 302 (`Location: target + путь запроса`). Полезно, например, для перенаправления неавторизованных пользователей на страницу логина. `target` при этом указывает на абсолютный URL (домен контейнера + порт), чтобы редирект не перехватил сам auth-proxy.
-
-#### Как работает «лесенка» ролей (`required_roles`)
-
-Роли в `roles` идут по возрастанию полномочий. Для маршрутов с `auth_method: jwt`, `auth_method: jwt2basic` и `auth_method: basic`:
-
-- доступ получают как указанная роль, так и все роли, стоящие в `roles` **правее** (выше по полномочиям);
-- если у маршрута ролей нет — открыт для **всех** ролей;
-- если `auth_method: none` — `required_roles` игнорируются (проверки нет вовсе).
-
-Пример:
-
-```yaml
-roles: ["user", "admin", "superadmin"]
+roles:
+  - "superadmin"
+  - "admin"
+  - "user"
 
 routes:
-  - prefix: "/api/users/delete"
-    target: "http://users_service:8081"
-    auth_method: jwt
-    required_roles: ["admin"]   # доступно admin и superadmin
-
-  - prefix: "/api/reports"
-    target: "http://reports_service:8082"
-    auth_method: jwt             # ролей нет -> доступно всем ролям
+  - prefix: "/api"
+    target: "http://api_service:8085"
+    required_groups: ["admin"]
 
   - prefix: "/"
-    target: "http://login:8084/login"
-    auth_method: none
+    host: "app.example.com"
+    target: "http://app:8080"
+
+  - prefix: "/static/**"
+    target: "http://static_service:8084"
+    strip_first_prefix: true
+
+  - prefix: "/inference"
+    target: "http://login_service:8084/login"
     redirect: true
     strip_first_prefix: true
 ```
 
----
+### `roles`
 
-## Пользователи (`access.users[]`)
+- минимум одна роль, все непустые и уникальные;
+- порядок — **по убыванию полномочий**: `roles[0]` самая высокая;
+- `roles[0]` даёт доступ к админке;
+- группа пользователя выше по списку покрывает требования ниже («лесенка»).
 
-Базовые пользователи, которые загружаются в кеш при старте сервиса.
+### `routes[]`
 
-```yaml
-access:
-  users:
-    - id: 1
-      login: "admin"
-      password: "adminpass"
-      email: "admin@example.com"
-      full_name: "Admin"
-      role: "superadmin"
-```
-
-| Поле          | Тип    | Обязательный | Описание |
-|---------------|--------|--------------|----------|
-| `id`          | int64  | да           | Уникальный ID пользователя (>= 1) |
-| `login`       | string | да           | Логин (4–128 символов) |
-| `password`    | string | да           | Пароль в открытом виде (4–72 символа). Хешируется bcrypt при загрузке конфига |
-| `email`       | string | нет          | Email (если задан — должен быть валидным) |
-| `full_name`   | string | нет          | Полное имя |
-| `role`        | string | да           | Роль из списка `roles` |
+| Поле | Тип | Обязательное | Описание |
+|---|---|---|---|
+| `host` | string | нет | точный домен или `*.example.com` (один уровень). Пусто — любой домен |
+| `prefix` | string | да | путь; `*` — один сегмент, `**` — любое число |
+| `target` | string | да | URL, куда проксировать/редиректить |
+| `redirect` | bool | нет | `true` — 302 на `target` + путь вместо проксирования |
+| `strip_first_prefix` | bool | нет | убрать первый сегмент пути |
+| `required_groups` | []string | нет | группы из `roles`; пусто — маршрут открыт |
 
 Правила:
 
-- **пароль** в YAML указывается в открытом виде и при старте хешируется bcrypt при загрузке в хранилище пользователей (в памяти, файл не перезаписывается);
-- из открытого пароля при старте также вычисляется готовый заголовок `Authorization: Basic` (для `jwt2basic`-маршрутов); в конфиге/YAML он не фигурирует;
-- `login` не короче 4 символов, `password` — от 4 до 72 символов (72 байта — лимит bcrypt);
-- `role` должна быть одной из ролей из `roles`;
-- если в `users` нет ни одного пользователя с **самой высокой** ролью из `roles` (или блок `users` отсутствует вовсе) — автоматически создаётся дефолтный суперадмин:
-  - `login: "superadmin"`, `password: "superadmin"`,
-  - роль — последняя (самая главная) из `roles`,
-  - `id` — максимальный существующий + 1.
+- `prefix` должен начинаться с `/`;
+- дубликаты `prefix + "|" + host` запрещены;
+- `required_groups` должны существовать в `roles`;
+- `prefix` не должен пересекаться с зарезервированными `/_admin` и `/config`;
+- пустой список `routes` разрешён — тогда все запросы получают `404`.
+
+### Поведение `strip_first_prefix`
+
+- `/inference/api/v1` → бэкенд получает `/inference/api/v1`;
+- при `strip_first_prefix: true` → `/api/v1`.
+
+### Поведение `redirect`
+
+`redirect: true` — вместо проксирования отдаётся `302` на `target` + путь запроса
+(с учётом `strip_first_prefix`).
 
 ---
 
-## Порядок приоритета и валидация
+## Авторизация
 
-1. Парсинг ENV (с дефолтами) → парсинг `.env` → загрузка YAML.
-2. Валидация `validate.Struct(cfg)` — обязательные секреты, диапазоны, типы, поля пользователей.
-3. `validate` — валидность и уникальность префиксов (с учётом `host`), существование `required_roles`, роли пользователей.
-4. `normalize` — `auth_method` по умолчанию, «лесенка» ролей, гарантия наличия суперадмина, `Secure` у кук.
-5. При старте пароли пользователей хешируются (`users.FromConfig`).
+Заголовки Authentik (forward_auth):
 
-Частые ошибки при запуске:
+| Заголовок | Использование |
+|---|---|
+| `X-authentik-username` | признак залогиненного пользователя |
+| `X-authentik-email` | читается в context (для логов/будущего) |
+| `X-authentik-groups` | группы через `|`, например `admin|user` |
+| `X-Proxy-Secret` | читается в context; проверка — TODO |
 
-- отсутствует/недоступен `config.yaml` или в нём нет ни одного маршрута;
-- `SESSION_ACCESS_SECRET` / `SESSION_REFRESH_SECRET` короче 32 символов;
-- неуникальный `prefix` или неизвестная роль в `required_roles`;
-- `refresh_ttl` не больше `access_ttl`;
-- пользователь с `role`, которой нет в `roles`;
-- `login` короче 4 или `password` короче 4 (или длиннее 72) символов.
+Если `required_groups` задан:
+
+- нет `X-authentik-username` → `401`;
+- группы пользователя не проходят проверку → `403`;
+- группы, которых нет в `roles`, игнорируются и логируются с `warn`;
+- роль выше по списку проходит (например, `superadmin` для `required_groups: ["admin"]`).
+
+Если `required_groups` пуст — проверки группы нет (запрос всё равно проходит
+через Authentik на ingress).
+
+---
+
+## Admin API
+
+Все запросы требуют `roles[0]` в `X-authentik-groups`.
+
+| Метод | Путь | Описание |
+|---|---|---|
+| `GET` | `/config` | `{"roles": [...], "routes": [...]}` |
+| `PUT` | `/config` | полная замена; тело — тот же JSON |
+| `GET` | `/_admin/` | HTML+JS-редактор |
+
+`PUT`:
+
+1. декодирует JSON (`unknown fields` запрещены);
+2. валидирует роли и маршруты;
+3. проверяет, что вызывающий сохраняет `roles[0]` (нельзя отобрать доступ у себя);
+4. собирает новый движок;
+5. атомарно пишет `routes.yaml` (tmp + rename);
+6. подменяет снапшот в памяти.
+
+Ошибка записи → `500`, конфиг в памяти не меняется.
+
+---
+
+## Порядок загрузки
+
+1. ENV (дефолты из тегов) → `.env` → `gateway.yaml`.
+2. Валидация `gateway.yaml`.
+3. Чтение и валидация `routes.yaml`.
+4. Сборка движка маршрутов.
+5. Запуск gateway и admin.
+
+Изменения `gateway.yaml` применяются только после рестарта.
+Изменения `routes.yaml` через API применяются сразу.

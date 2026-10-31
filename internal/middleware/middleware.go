@@ -33,7 +33,7 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 var RequestIDHeader = "X-Request-ID"
 
 // RequestID добавляет (если ещё нет) X-Request-ID в каждый запрос и кладёт
-// его в лог, чтобы можно было связать запись от гейта и auth-сервиса.
+// его в лог, чтобы можно было связать записи gateway и admin.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(RequestIDHeader)

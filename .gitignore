@@ -1,4 +1,6 @@
 .env
-config.yaml
+gateway.yaml
+routes.yaml
+data/
 .idea/
 *.db

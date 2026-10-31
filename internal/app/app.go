@@ -1,91 +1,75 @@
 package app
 
 import (
-	"auth-proxy/internal/auth"
-	"auth-proxy/internal/config"
-	"auth-proxy/internal/gateway"
-	"auth-proxy/internal/tokens"
-	"auth-proxy/internal/users"
-	"auth-proxy/pkg/hostmatch"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"slices"
 	"syscall"
+
+	"auth-proxy/internal/admin"
+	"auth-proxy/internal/config"
+	"auth-proxy/internal/gateway"
+	"auth-proxy/internal/reverseproxy"
+	"auth-proxy/internal/store"
 )
 
-// Run собирает зависимости, поднимает два http-слушателя (гейт и auth-сервис)
-// и ждёт сигнала выключения или ошибки сервера.
+// Run собирает зависимости, поднимает два http-слушателя
+// (gateway и admin) и ждёт сигнала выключения или ошибки сервера.
 func Run(version string) error {
-	cfg, err := config.Load()
+	gwCfg, routesCfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
-	logger := newLogger(cfg.LogLevel)
+	logger := newLogger(gwCfg.LogLevel)
 	slog.SetDefault(logger)
 
-	// Выводим конфиг для дебага
-	printConfig(logger, cfg, version)
-
-	// Общее хранилище пользователей: гейт и auth-сервис работают
-	// с одним и тем же набором пользователей из конфига.
-	userList, err := users.FromConfig(cfg.Access)
-	if err != nil {
-		return fmt.Errorf("load users: %w", err)
-	}
-	userStorage := users.New(logger.With(slog.String("component", "user-storage")))
-	userStorage.Load(context.Background(), userList)
-
-	// Общий JWT-сервис: гейт валидирует access-токены, auth-сервис их выдаёт.
-	tokenService := tokens.New(tokens.Config{
-		SecretKey:       cfg.Session.JWT.AccessSecret,
-		AccessTokenTTL:  cfg.Session.JWT.AccessTTL,
-		RefreshTokenTTL: cfg.Session.JWT.RefreshTTL,
+	// Начальный снапшот маршрутов и ролей.
+	snap, err := store.Build(routesCfg, func(route config.RouteConfig) (http.Handler, error) {
+		return reverseproxy.New(route, logger)
 	})
+	if err != nil {
+		return fmt.Errorf("build routes: %w", err)
+	}
+	st := store.New(snap)
 
-	// Гейт: проксирует трафик после проверки токенов и ролей
+	printConfig(logger, gwCfg, snap, version)
+
 	gw, err := gateway.New(&gateway.Options{
-		Logger:     logger.With(slog.String("component", "gateway-handler")),
-		Routes:     cfg.Gateway.Routes,
-		Cookie:     cfg.Session.Cookie,
-		AuthURL:    cfg.Auth.BaseURL,
-		Tokens:     tokenService,
-		Users:      userStorage,
-		AppVersion: version,
+		Logger:       logger.With(slog.String("component", "gateway-handler")),
+		Store:        st,
+		AdminPort:    gwCfg.Admin.Port,
+		SecretHeader: gwCfg.Authentik.SecretHeader,
+		AppVersion:   version,
 	})
 	if err != nil {
 		return err
 	}
 
-	// Auth-сервис: /login /refresh /logout /user/me (отдельный порт)
-	authService, err := auth.New(&auth.Options{
-		Logger:        logger.With(slog.String("component", "auth-handler")),
-		Cookie:        cfg.Session.Cookie,
-		AllowOrigins:  cfg.Auth.AllowOrigins,
-		GatewayURL:    cfg.Gateway.BaseURL,
-		RedirectHosts: redirectHosts(cfg),
-		Tokens:        tokenService,
-		Users:         userStorage,
+	adm, err := admin.New(&admin.Options{
+		Logger:       logger.With(slog.String("component", "admin-handler")),
+		Store:        st,
+		RoutesPath:   gwCfg.RoutesFile,
+		SecretHeader: gwCfg.Authentik.SecretHeader,
+		AppVersion:   version,
 	})
 	if err != nil {
 		return err
 	}
 
-	gatewayServer := newServer(cfg.Gateway.Port, cfg.Gateway.Timeouts, gw.Handler())
-	authServer := newServer(cfg.Auth.Port, cfg.Auth.Timeouts, authService.Handler())
+	gatewayServer := newServer(gwCfg.Server.Port, gwCfg.Server.Timeouts, gw.Handler())
+	adminServer := newServer(gwCfg.Admin.Port, gwCfg.Admin.Timeouts, adm.Handler())
 
-	// Запускаем оба сервера параллельно; ошибка любого из них - фатальная
+	// Запускаем оба сервера параллельно; ошибка любого из них - фатальная.
 	errCh := make(chan error, 2)
 	go serve("gateway", gatewayServer, logger.With(slog.String("component", "gateway-server")), errCh)
-	go serve("auth", authServer, logger.With(slog.String("component", "auth-server")), errCh)
+	go serve("admin", adminServer, logger.With(slog.String("component", "admin-server")), errCh)
 
-	// Ждём сигнала выключения или ошибки сервера
+	// Ждём сигнала выключения или ошибки сервера.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -97,33 +81,19 @@ func Run(version string) error {
 		logger.Info("received signal, shutting down", "signal", sig.String())
 	}
 
-	// Даём серверам закончить обработку активных запросов с таймаутом
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	// Даём серверам закончить обработку активных запросов с таймаутом.
+	ctx, cancel := context.WithTimeout(context.Background(), gwCfg.ShutdownTimeout)
 	defer cancel()
 	if err := gatewayServer.Shutdown(ctx); err != nil {
 		logger.Error("gateway shutdown", "error", err.Error())
 	}
-	if err := authServer.Shutdown(ctx); err != nil {
-		logger.Error("auth shutdown", "error", err.Error())
+	if err := adminServer.Shutdown(ctx); err != nil {
+		logger.Error("admin shutdown", "error", err.Error())
 	}
 	return serveErr
 }
 
-// redirectHosts - куда auth-сервис может вернуть пользователя после логина:
-// хост gateway.base_url, host-ы маршрутов и auth.allowed_redirect_hosts.
-// Маршруты без host сюда не попадают: они матчат любой Host, и пускать
-// редирект куда угодно нельзя (open redirect).
-func redirectHosts(cfg *config.Config) hostmatch.Set {
-	hosts := slices.Clone(cfg.Auth.AllowedRedirectHosts)
-	if u, err := url.Parse(cfg.Gateway.BaseURL); err == nil {
-		hosts = append(hosts, u.Host)
-	}
-	for _, route := range cfg.Gateway.Routes {
-		hosts = append(hosts, route.Host)
-	}
-	return hostmatch.NewSet(hosts...)
-}
-
+// newServer собирает http.Server для одного слушателя.
 func newServer(port int, timeouts config.Timeouts, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),

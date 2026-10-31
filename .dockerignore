@@ -1,8 +1,10 @@
-# Секреты и локальные конфиги - не попадают в образ
 .env
-config.yaml
+gateway.yaml
+routes.yaml
+data/
 internal/config/example.env
-internal/config/example.config.yaml
+internal/config/example.gateway.yaml
+internal/config/example.routes.yaml
 internal/config/README.md
 
 # VCS

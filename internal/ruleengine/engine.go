@@ -10,8 +10,8 @@ import (
 	"slices"
 )
 
-// Rule - скомпилированный маршрут: настройки из конфига (auth_method,
-// required_roles, ...) и готовый обработчик, куда отдать запрос после авторизации.
+// Rule - скомпилированный маршрут: настройки из конфига (required_groups, ...)
+// и готовый обработчик, куда отдать запрос после авторизации.
 type Rule struct {
 	Route    config.RouteConfig
 	Upstream http.Handler

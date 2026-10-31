@@ -19,7 +19,8 @@ COPY --from=build /auth-proxy /usr/local/bin/auth-proxy
 RUN addgroup -S app && adduser -S -G app app
 USER app
 
-EXPOSE 5000 6000
+# 5000 - gateway, 7000 - admin (наружу не публикуется)
+EXPOSE 5000 7000
 
 WORKDIR /app
 ENTRYPOINT ["auth-proxy"]

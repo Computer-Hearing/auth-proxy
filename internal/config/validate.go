@@ -1,24 +1,49 @@
 package config
 
 import (
-	"auth-proxy/pkg/routepattern"
 	"fmt"
 	"slices"
+	"strings"
+
+	"github.com/go-playground/validator/v10"
+
+	"auth-proxy/pkg/hostmatch"
+	"auth-proxy/pkg/routepattern"
 )
 
-// validate - проверки маршрутов и пользователей, которые не выразить тегами.
-// Конфиг не меняет.
-func validate(cfg *Config) error {
-	if err := validateRoutes(cfg.Gateway.Routes, cfg.Access.Roles); err != nil {
+// ValidateRoutes проверяет роли и маршруты. Возвращает первую ошибку.
+func ValidateRoutes(r *Routes) error {
+	if r == nil {
+		return fmt.Errorf("routes config is nil")
+	}
+	if err := validator.New().Struct(r); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+	if err := validateRoles(r.Roles); err != nil {
 		return err
 	}
-	return validateUsers(cfg.Access)
+	return validateRoutes(r.Routes, r.Roles)
 }
 
-// validateRoutes проверяет маршруты
+// validateRoles проверяет, что роли непустые и уникальные.
+func validateRoles(roles []string) error {
+	seen := make(map[string]bool, len(roles))
+	for i, role := range roles {
+		if role == "" {
+			return fmt.Errorf("roles[%d]: empty role", i)
+		}
+		if seen[role] {
+			return fmt.Errorf("roles[%d]: duplicate role %q", i, role)
+		}
+		seen[role] = true
+	}
+	return nil
+}
+
+// validateRoutes проверяет маршруты: паттерн, host, группы, дубликаты и
+// зарезервированные под админку пути.
 func validateRoutes(routes []RouteConfig, roles []string) error {
-	// Проверяем, что маршруты уникальны (по префиксу и host)
-	seen := make(map[string]bool)
+	seen := make(map[string]bool, len(routes))
 	for i, route := range routes {
 		if route.Prefix == "" {
 			return fmt.Errorf("route[%d]: prefix is required", i)
@@ -26,34 +51,64 @@ func validateRoutes(routes []RouteConfig, roles []string) error {
 		if route.Target == "" {
 			return fmt.Errorf("route[%d]: target is required", i)
 		}
-
-		// Проверяем, что prefix парсится как паттерн маршрута
 		if _, err := routepattern.Parse(route.Prefix); err != nil {
 			return fmt.Errorf("route[%d]: invalid prefix %q: %w", i, route.Prefix, err)
 		}
-
-		// Проверяем, что required_roles существуют в общем списке ролей
-		for _, role := range route.RequiredRoles {
-			if !slices.Contains(roles, role) {
-				return fmt.Errorf("route[%d]: unknown role '%s' (available: %v)", i, role, roles)
+		if err := validateReservedPrefix(route.Prefix); err != nil {
+			return fmt.Errorf("route[%d]: %w", i, err)
+		}
+		if err := validateHost(route.Host); err != nil {
+			return fmt.Errorf("route[%d]: %w", i, err)
+		}
+		for _, group := range route.RequiredGroups {
+			if !slices.Contains(roles, group) {
+				return fmt.Errorf("route[%d]: unknown group %q (available: %v)", i, group, roles)
 			}
 		}
 
-		// Проверка на дубликаты префиксов (с учётом host)
-		routeKey := route.Prefix + "|" + route.Host
-		if seen[routeKey] {
-			return fmt.Errorf("route[%d]: duplicate prefix '%s' with host '%s'", i, route.Prefix, route.Host)
+		key := route.Prefix + "|" + route.Host
+		if seen[key] {
+			return fmt.Errorf("route[%d]: duplicate prefix %q with host %q", i, route.Prefix, route.Host)
 		}
-		seen[routeKey] = true
+		seen[key] = true
 	}
 	return nil
 }
 
-// validateUsers проверяет, что роли пользователей есть в списке ролей
-func validateUsers(access AccessConfig) error {
-	for _, user := range access.Users {
-		if !slices.Contains(access.Roles, user.Role) {
-			return fmt.Errorf("user[%d]: role '%s' is not in Roles list", user.ID, user.Role)
+// validateHost - пустой host (любой домен), точный host или *.wildcard.
+func validateHost(host string) error {
+	if host == "" {
+		return nil
+	}
+	if strings.ContainsAny(host, " /") {
+		return fmt.Errorf("invalid host %q", host)
+	}
+	if hostmatch.IsWildcard(host) {
+		base := host[2:]
+		if base == "" || strings.Contains(base, "*") || strings.Contains(base, ".") && strings.HasPrefix(base, ".") {
+			return fmt.Errorf("invalid wildcard host %q", host)
+		}
+		return nil
+	}
+	if strings.Contains(host, "*") {
+		return fmt.Errorf("invalid host %q: wildcard must be *.example.com", host)
+	}
+	return nil
+}
+
+// validateReservedPrefix не даёт маршруту занять путь админки.
+// Catch-all "/" разрешён: зарезервированные пути проверяются раньше движка.
+func validateReservedPrefix(prefix string) error {
+	literal := prefix
+	if i := strings.IndexByte(prefix, '*'); i >= 0 {
+		literal = prefix[:i]
+	}
+	if literal == "/" || literal == "" {
+		return nil
+	}
+	for _, reserved := range ReservedPrefixes {
+		if strings.HasPrefix(literal, reserved) || strings.HasPrefix(reserved, literal) {
+			return fmt.Errorf("prefix %q overlaps reserved admin path %q", prefix, reserved)
 		}
 	}
 	return nil

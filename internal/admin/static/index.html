@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>auth-proxy admin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>auth-proxy</h1>
+      <p class="hint">
+        <code>roles</code> — по убыванию полномочий, <code>roles[0]</code> самая высокая.
+        Маршрут без <code>required_groups</code> открыт.
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <button id="reload" type="button">Перечитать</button>
+      <button id="save" type="button" class="primary">Сохранить</button>
+      <span id="status" role="status"></span>
+    </div>
+
+    <textarea id="editor" spellcheck="false" aria-label="routes.yaml в JSON"></textarea>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

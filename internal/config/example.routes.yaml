@@ -1,0 +1,35 @@
+# Роли по убыванию полномочий: roles[0] — самая высокая.
+# required_groups валидируются против этого списка.
+roles:
+  - "superadmin"
+  - "admin"
+  - "user"
+
+routes:
+  # host не указан — маршрут подходит под любой домен (fallback).
+  - prefix: "/api"
+    target: "http://api_service:8085"
+    required_groups: ["admin"]
+
+  # Точный host.
+  - prefix: "/"
+    host: "app.example.com"
+    target: "http://app:8080"
+
+  # Wildcard host: ровно один уровень.
+  # grafana.example.com — да, a.b.example.com и example.com — нет.
+  - prefix: "/"
+    host: "*.example.com"
+    target: "http://wildcard:8080"
+    required_groups: ["user"]
+
+  # Статика без проверки группы (пустой required_groups).
+  - prefix: "/static/**"
+    target: "http://static_service:8084"
+    strip_first_prefix: true
+
+  # Редирект-маршрут: 302 на target + путь запроса.
+  - prefix: "/inference"
+    target: "http://login_service:8084/login"
+    redirect: true
+    strip_first_prefix: true

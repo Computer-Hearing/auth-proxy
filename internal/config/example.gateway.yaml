@@ -1,0 +1,24 @@
+log_level: info
+shutdown_timeout: 10s
+
+# Основной слушатель: маршруты и проксирование.
+server:
+  port: 5000
+  read_timeout: 5s
+  write_timeout: 10s
+
+# Слушатель админки: статика /_admin и JSON API /config.
+# Наружу не публикуется, доступен только через gateway.
+admin:
+  port: 7000
+  read_timeout: 5s
+  write_timeout: 10s
+
+# Доверенные заголовки Authentik.
+# secret пока только читается middleware; проверка не выполняется (TODO).
+authentik:
+  secret_header: "X-Proxy-Secret"
+  secret: ""
+
+# Путь к динамическому конфигу (роли + маршруты).
+routes_file: "/etc/auth-proxy/routes.yaml"

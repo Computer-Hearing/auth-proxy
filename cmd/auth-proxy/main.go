@@ -36,7 +36,7 @@ func printBanner() {
     ║    ██║     ██║  ██║╚██████╔╝██╔╝ ██╗ ██║         ║
     ║    ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝ ╚═╝         ║
     ║                                                  ║
-    ║       Authentication & Authorization Proxy       ║
+    ║        Routing & Authorization Proxy             ║
     ║                                                  ║
     ╚══════════════════════════════════════════════════╝
     `

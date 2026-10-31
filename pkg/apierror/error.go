@@ -15,15 +15,15 @@ var (
 		StatusCode: http.StatusNotFound,
 		Message:    "path not found in config",
 	}
-	// ErrUnauthorized - нет токена или он невалидной (клиент не вошёл)
+	// ErrUnauthorized - нет доверенных заголовков Authentik (клиент не вошёл)
 	ErrUnauthorized error = APIError{
 		StatusCode: http.StatusUnauthorized,
 		Message:    "unauthorized",
 	}
-	// ErrForbidden - токен валиден, но роль недостаточна для маршрута
+	// ErrForbidden - пользователь известен, но группы недостаточно для маршрута
 	ErrForbidden error = APIError{
 		StatusCode: http.StatusForbidden,
-		Message:    "forbidden: insufficient role",
+		Message:    "forbidden: insufficient group",
 	}
 )
 
