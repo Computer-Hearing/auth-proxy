@@ -238,3 +238,80 @@ func TestAdmin_MethodNotAllowed(t *testing.T) {
 		t.Errorf("got %d, want 405", rec.Code)
 	}
 }
+
+func domainRoutes() *config.Routes {
+	return &config.Routes{
+		Roles: testRoles,
+		Routes: []config.RouteConfig{
+			{Prefix: "/", Host: "app.example.com", Target: "http://app:8080"},
+			{Prefix: "/", Host: "*.example.com", Target: "http://wild:8080"},
+			{Prefix: "/", Target: "http://default:8080"},
+		},
+	}
+}
+
+func TestAdmin_AllowedDomain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "routes.yaml")
+	a := newTestAdmin(t, domainRoutes(), path)
+
+	cases := []struct {
+		name string
+		path string
+		want int
+	}{
+		{"exact", "/internal/allowed-domain?domain=app.example.com", http.StatusOK},
+		{"case and port", "/internal/allowed-domain?domain=APP.Example.com:443", http.StatusOK},
+		{"trailing dot", "/internal/allowed-domain?domain=app.example.com.", http.StatusOK},
+		{"wildcard excluded", "/internal/allowed-domain?domain=grafana.example.com", http.StatusNotFound},
+		{"no-host routes excluded", "/internal/allowed-domain?domain=other.com", http.StatusNotFound},
+		{"missing param", "/internal/allowed-domain", http.StatusBadRequest},
+		{"empty param", "/internal/allowed-domain?domain=", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		// Без заголовков Authentik: ручка публичная.
+		rec := call(a, http.MethodGet, tc.path, "", nil)
+		if rec.Code != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, rec.Code, tc.want)
+		}
+	}
+}
+
+func TestAdmin_AllowedDomain_MethodNotAllowed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "routes.yaml")
+	a := newTestAdmin(t, domainRoutes(), path)
+
+	rec := call(a, http.MethodPost, "/internal/allowed-domain?domain=app.example.com", "", nil)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("got %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != http.MethodGet {
+		t.Errorf("Allow: got %q, want GET", got)
+	}
+}
+
+func TestAdmin_AllowedDomain_HotReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "routes.yaml")
+	writeInitial(t, path)
+	a := newTestAdmin(t, initialRoutes(), path) // /api без host
+
+	if rec := call(a, http.MethodGet, "/internal/allowed-domain?domain=new.example.com", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("before PUT: got %d, want 404", rec.Code)
+	}
+
+	body, err := json.Marshal(config.Routes{
+		Roles: testRoles,
+		Routes: []config.RouteConfig{
+			{Prefix: "/", Host: "new.example.com", Target: "http://new:8080"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if rec := call(a, http.MethodPut, "/config", string(body), topHeaders()); rec.Code != http.StatusOK {
+		t.Fatalf("PUT: got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if rec := call(a, http.MethodGet, "/internal/allowed-domain?domain=new.example.com", "", nil); rec.Code != http.StatusOK {
+		t.Errorf("after PUT: got %d, want 200", rec.Code)
+	}
+}

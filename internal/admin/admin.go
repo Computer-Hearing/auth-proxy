@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"auth-proxy/internal/authentik"
 	"auth-proxy/internal/config"
@@ -13,6 +14,7 @@ import (
 	"auth-proxy/internal/reverseproxy"
 	"auth-proxy/internal/store"
 	"auth-proxy/pkg/apierror"
+	"auth-proxy/pkg/hostmatch"
 	"auth-proxy/pkg/httpx"
 )
 
@@ -64,18 +66,54 @@ func New(opts *Options) (*Admin, error) {
 
 // Handler собирает mux админки.
 func (a *Admin) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/config", a.handleConfig)
-	mux.Handle("/_admin/", http.StripPrefix("/_admin", a.staticHandler()))
-	mux.Handle("/_admin", http.RedirectHandler("/_admin/", http.StatusFound))
+	// Публичная ручка для Caddy on_demand_tls: без Authentik и проверки роли.
+	root := http.NewServeMux()
+	root.HandleFunc("/internal/allowed-domain", a.handleAllowedDomain)
 
-	return middleware.Chain(mux,
+	// Остальное - под аутентификацией и проверкой roles[0].
+	protected := http.NewServeMux()
+	protected.HandleFunc("/config", a.handleConfig)
+	protected.Handle("/_admin/", http.StripPrefix("/_admin", a.staticHandler()))
+	protected.Handle("/_admin", http.RedirectHandler("/_admin/", http.StatusFound))
+
+	root.Handle("/", authentik.Middleware(a.secretHeader)(a.requireTopRole(protected)))
+
+	return middleware.Chain(root,
 		middleware.Recover,
 		middleware.RequestID,
 		middleware.Log,
-		authentik.Middleware(a.secretHeader),
-		a.requireTopRole,
 	)
+}
+
+// handleAllowedDomain - публичная ручка для Caddy on_demand_tls.
+// 200, если домен есть среди точных host маршрутов, иначе 404.
+// Wildcard-маршруты и маршруты без host разрешения не дают.
+func (a *Admin) handleAllowedDomain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	domain := hostmatch.NormalizeDomain(strings.TrimSpace(r.URL.Query().Get("domain")))
+	if domain == "" {
+		http.Error(w, "domain is required", http.StatusBadRequest)
+		return
+	}
+
+	snap := a.store.Load()
+	_, allowed := snap.ExactHosts[domain]
+
+	a.logger.Debug("allowed-domain",
+		slog.String("domain", domain),
+		slog.Bool("allowed", allowed),
+	)
+
+	if !allowed {
+		http.NotFound(w, r)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // requireTopRole пускает к админке только пользователя с roles[0].

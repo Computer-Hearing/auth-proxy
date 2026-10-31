@@ -44,6 +44,31 @@ func TestBuildAndSwap(t *testing.T) {
 	}
 }
 
+func TestBuild_ExactHosts(t *testing.T) {
+	snap, err := Build(&config.Routes{
+		Roles: []string{"root"},
+		Routes: []config.RouteConfig{
+			{Prefix: "/", Host: "app.example.com", Target: "http://a:8080"},
+			{Prefix: "/", Host: "APP.Example.com:443", Target: "http://b:8080"},
+			{Prefix: "/", Host: "*.example.com", Target: "http://c:8080"},
+			{Prefix: "/", Target: "http://d:8080"},
+		},
+	}, stubBuild)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if _, ok := snap.ExactHosts["app.example.com"]; !ok {
+		t.Error("exact host app.example.com missing")
+	}
+	if _, ok := snap.ExactHosts["grafana.example.com"]; ok {
+		t.Error("wildcard subdomain must not be allowed")
+	}
+	if len(snap.ExactHosts) != 1 {
+		t.Errorf("exact hosts: got %v, want only app.example.com", snap.ExactHosts)
+	}
+}
+
 func TestBuild_InvalidRoute(t *testing.T) {
 	_, err := Build(&config.Routes{
 		Roles:  []string{"root"},

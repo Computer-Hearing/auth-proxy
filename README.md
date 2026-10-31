@@ -87,6 +87,37 @@ fallback — `Host` запроса.
 нет `X-authentik-username` → `401`, роль ниже → `403`.
 Admin-порт наружу не публикуется: gateway проксирует на него после проверки.
 
+## Caddy `on_demand_tls`
+
+Чтобы Caddy выпускал сертификаты только для доменов, которые есть в маршрутах,
+используйте `ask`-ручку admin-листенера:
+
+```caddyfile
+{
+    on_demand_tls {
+        ask http://auth-proxy:7000/internal/allowed-domain
+    }
+}
+
+https:// {
+    tls {
+        on_demand
+    }
+    reverse_proxy auth-proxy:5000
+}
+```
+
+`GET /internal/allowed-domain?domain=<host>`:
+
+- `200` — домен есть среди **точных** `host` маршрутов;
+- `404` — нет (wildcard-маршруты и маршруты без `host` разрешения не дают);
+- `400` — параметр `domain` отсутствует/пустой;
+- `405` — метод не `GET`.
+
+Ручка публичная (Caddy не присылает заголовки Authentik) и живёт только на
+admin-порту. Наружу порт не публикуйте: Caddy должен обращаться к
+`auth-proxy:7000` внутри docker-сети.
+
 ## Быстрый старт локально
 
 ```bash
@@ -114,8 +145,8 @@ docker compose up -d --build
 
 `gateway.yaml` и `routes.yaml` лежат в `./data` и монтируются в `/etc/auth-proxy`:
 каталог должен быть доступен на запись (атомарный rename не работает с
-single-file bind mount). Публикуются порты `5000` и `7000`; admin-порт
-наружу лучше не отдавать, а проксировать через ingress.
+single-file bind mount). Публикуется только `5000`; admin-порт `7000` доступен
+только внутри docker-сети (`expose`) — Caddy и gateway обращаются к нему напрямую.
 
 ## Отложено / TODO
 

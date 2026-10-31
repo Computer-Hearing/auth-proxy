@@ -6,6 +6,7 @@ import (
 
 	"auth-proxy/internal/config"
 	"auth-proxy/internal/ruleengine"
+	"auth-proxy/pkg/hostmatch"
 )
 
 // Snapshot - неизменяемое состояние маршрутов и ролей.
@@ -13,6 +14,9 @@ type Snapshot struct {
 	Roles  []string
 	Routes []config.RouteConfig
 	Engine *ruleengine.Engine
+	// ExactHosts - точные host из маршрутов (без wildcard и без пустых).
+	// Нужен для быстрой проверки домена в /internal/allowed-domain.
+	ExactHosts map[string]struct{}
 }
 
 // Store - атомарная подмена снапшота без блокировок на чтении.
@@ -43,9 +47,21 @@ func Build(r *config.Routes, build ruleengine.Builder) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Точные host для on-demand TLS. Wildcard и маршруты без host сюда не
+	// попадают: сертификат выдаётся только на явно перечисленные домены.
+	exactHosts := make(map[string]struct{}, len(r.Routes))
+	for _, route := range r.Routes {
+		if route.Host == "" || hostmatch.IsWildcard(route.Host) {
+			continue
+		}
+		exactHosts[hostmatch.NormalizeDomain(route.Host)] = struct{}{}
+	}
+
 	return &Snapshot{
-		Roles:  slices.Clone(r.Roles),
-		Routes: slices.Clone(r.Routes),
-		Engine: engine,
+		Roles:      slices.Clone(r.Roles),
+		Routes:     slices.Clone(r.Routes),
+		Engine:     engine,
+		ExactHosts: exactHosts,
 	}, nil
 }

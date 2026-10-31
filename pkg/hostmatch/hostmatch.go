@@ -35,6 +35,12 @@ func Normalize(host string) string {
 	return strings.ToLower(host)
 }
 
+// NormalizeDomain нормализует домен для точного сравнения: без порта,
+// в нижнем регистре и без хвостовой точки ("App.Example.com." -> "app.example.com").
+func NormalizeDomain(host string) string {
+	return strings.TrimSuffix(Normalize(host), ".")
+}
+
 // Set - набор допустимых host-паттернов (точные и *.wildcard).
 type Set struct {
 	patterns []string

@@ -42,6 +42,20 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+func TestNormalizeDomain(t *testing.T) {
+	cases := map[string]string{
+		"App.Example.com.":    "app.example.com",
+		"APP.EXAMPLE.COM:443": "app.example.com",
+		"example.com":         "example.com",
+		"":                    "",
+	}
+	for in, want := range cases {
+		if got := NormalizeDomain(in); got != want {
+			t.Errorf("NormalizeDomain(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestSet_Contains(t *testing.T) {
 	s := NewSet("gw.example.com", "*.Apps.example.com", "", "localhost")
 
